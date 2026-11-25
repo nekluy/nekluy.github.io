@@ -981,3 +981,126 @@ body.gated {
     display: none;
   }
 }
+
+/* ── голосовой диалог вместо кнопок ────────────────────────────────
+   Человек говорит в микрофон, браузер распознаёт речь, мошенник отвечает
+   по сценарию. Панель показывает, слушают ли его сейчас. */
+.voice {
+  display: grid;
+  gap: 0.65rem;
+  padding: 1rem 1.05rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: rgba(8, 6, 12, 0.5);
+}
+.voice__head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.voice__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--coral);
+  flex: none;
+}
+.voice__dot.is-live {
+  background: var(--teal);
+  box-shadow: 0 0 0 0 rgba(127, 178, 164, 0.6);
+  animation: voice-pulse 1.5s var(--ease) infinite;
+}
+@keyframes voice-pulse {
+  70% { box-shadow: 0 0 0 9px rgba(127, 178, 164, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(127, 178, 164, 0); }
+}
+.voice__mic {
+  margin-left: auto;
+  font-size: 0.68rem;
+  color: var(--teal);
+  letter-spacing: 0.04em;
+}
+.voice__meter {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 30px;
+}
+.voice__meter i {
+  flex: 1 1 0;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(199, 222, 211, 0.9), rgba(127, 178, 164, 0.2));
+  transform: scaleY(0.35);
+  opacity: 0.22;
+  transition: transform 0.09s linear, opacity 0.12s linear;
+}
+.voice__heard {
+  margin: 0;
+  min-height: 1.4em;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+.voice__hint {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.voice__type {
+  display: flex;
+  gap: 0.5rem;
+}
+.voice__type[hidden] {
+  display: none;
+}
+.voice__type input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: rgba(4, 9, 17, 0.6);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+}
+.voice__type input:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}
+.voice__send {
+  flex: none;
+  padding: 0.6rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--teal);
+  background: rgba(127, 178, 164, 0.16);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.voice__send:hover {
+  background: rgba(127, 178, 164, 0.28);
+}
+.voice__note {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.voice--done {
+  border-color: rgba(127, 178, 164, 0.5);
+}
+.voice__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  color: var(--text);
+}

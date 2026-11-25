@@ -36,7 +36,23 @@ import pitchAudioF from "./audio/pitch-f.mp3";
 import smsAudioF from "./audio/sms-f.mp3";
 import pressureAudioF from "./audio/pressure-f.mp3";
 import afterCodeAudioF from "./audio/after_code-f.mp3";
+import againAudio from "./audio/again.mp3";
+import silenceAudio from "./audio/silence.mp3";
+import bridgeAudio from "./audio/bridge.mp3";
+import doubtAudio from "./audio/doubt.mp3";
+import refuseAudio from "./audio/refuse.mp3";
+import waitCodeAudio from "./audio/wait_code.mp3";
+import holdOnAudio from "./audio/hold_on.mp3";
+import againAudioF from "./audio/again-f.mp3";
+import silenceAudioF from "./audio/silence-f.mp3";
+import bridgeAudioF from "./audio/bridge-f.mp3";
+import doubtAudioF from "./audio/doubt-f.mp3";
+import refuseAudioF from "./audio/refuse-f.mp3";
+import waitCodeAudioF from "./audio/wait_code-f.mp3";
+import holdOnAudioF from "./audio/hold_on-f.mp3";
 import envStudio from "./assets/env-studio-hi.jpg";
+import { CALL_START, LINES, STEPS, classifyUtterance, pickCode } from "./data/call-script.js";
+import { createSpeech, createMeter, speechSupported } from "./speech.js";
 
 /* ── дизайн-сетка экрана ─────────────────────────────────────────── */
 
@@ -70,173 +86,37 @@ const ISLAND = { w: 154, h: 38, top: 44 };
 
 /* ── сценарий ────────────────────────────────────────────────────── */
 
-const NODES = {
-  incoming: { entries: [], answer: "hello", decline: "end_declined" },
-  hello: {
-    audio: helloAudio,
-    entries: [{ who: "scam", text: "Здравствуйте! Это оператор сотовой связи. Вы меня нормально слышите?" }],
-    choices: [
-      { label: "Да, слышу", next: "pitch" },
-      { label: "Кто вы и откуда у вас мой номер?", next: "who" },
-      { label: "Сбросить", next: "end_declined" },
-    ],
-  },
-  who: {
-    audio: whoAudio,
-    entries: [
-      {
-        who: "scam",
-        text: "Я оператор, звоню по вашему номеру из базы абонентов. Слушайте, у вас подходит к концу срок годности сим-карты.",
-      },
-    ],
-    choices: [
-      { label: "Продолжайте", next: "pitch" },
-      { label: "Сбросить", next: "end_declined" },
-    ],
-  },
-  pitch: {
-    audio: pitchAudio,
-    entries: [
-      {
-        who: "scam",
-        text: "Срок действия вашей сим-карты заканчивается. Продление бесплатное, займёт одну минуту. Пока заявка оформляется — связь и интернет работают нормально, жалоб нет?",
-      },
-      {
-        who: "note",
-        text: "В этот момент вас держат «в заявке»: минута тишины нужна, чтобы вы не успели проверить условия договора.",
-      },
-    ],
-    choices: [
-      { label: "Хорошо, что нужно сделать?", next: "sms" },
-      { label: "У сим-карты нет срока действия", next: "pressure" },
-      { label: "Сбросить", next: "end_declined" },
-    ],
-  },
-  sms: {
-    audio: smsAudio,
-    entries: [
-      {
-        who: "scam",
-        text: "Сейчас придёт СМС с номера 1414 — там код подтверждения продления. Назовите его, я внесу в базу, и номер продлится на пять лет.",
-      },
-      {
-        who: "note",
-        text: "Это цель всего звонка. Код подтверждения — ваша подпись под операцией; сотруднику она не нужна никогда.",
-      },
-    ],
-    choices: [
-      { label: "Назвать код", next: "after_code" },
-      { label: "Зачем вам код? Скажите, что я подписываю", next: "pressure" },
-      { label: "Сбросить и позвонить оператору самому", next: "end_good" },
-    ],
-  },
-  pressure: {
-    audio: pressureAudio,
-    entries: [
-      {
-        who: "scam",
-        text: "Если не назовёте код — номер заблокируют и внесут в чёрный список, восстановить будет нельзя. Через десять минут будет поздно.",
-      },
-      {
-        who: "note",
-        text: "Угроза придумана, но работает: потерять номер страшнее, чем потерять деньги — с ним связаны банк и «Госуслуги».",
-      },
-    ],
-    choices: [
-      { label: "Ладно, диктуйте код", next: "after_code" },
-      { label: "Я перезвоню в поддержку сам", next: "end_good" },
-      { label: "Сбросить", next: "end_good" },
-    ],
-  },
-  after_code: {
-    audio: afterCodeAudio,
-    entries: [
-      { who: "you", text: "Код… {code}." },
-      {
-        who: "scam",
-        text: "Спасибо, номер продлён. И последнее, чтобы закрыть заявку: где вы работаете официально, какая зарплата и в каком банке получаете?",
-      },
-      {
-        who: "note",
-        text: "Вот и настоящая цель второго шага: эти ответы нужны для следующего звонка — «из службы безопасности вашего банка».",
-      },
-    ],
-    choices: [
-      { label: "Ответить на все вопросы", next: "end_worst" },
-      { label: "Это не ваше дело", next: "end_after_code" },
-      { label: "Сбросить", next: "end_after_code" },
-    ],
-  },
-  end_declined: {
-    screen: "ended",
-    entries: [
-      {
-        who: "note",
-        text: "Вы сбросили — и это правильный поступок. Номер не «просрочен»: срок действия есть у договора и тарифа, а не у сим-карты.",
-      },
-      {
-        who: "note",
-        text: "Если сомневаетесь — позвоните оператору по номеру с его сайта или из приложения, а не по входящему вызову.",
-      },
-    ],
-    end: true,
-  },
-  end_good: {
-    screen: "ended",
-    entries: [
-      { who: "you", text: "Я перезвоню в поддержку сам." },
-      {
-        who: "note",
-        text: "Правильно. Кода вы не отдали — значит, доступ к номеру и аккаунтам остался у вас.",
-      },
-      {
-        who: "note",
-        text: "Проверить продление и тариф можно в приложении оператора, а не в разговоре с тем, кто позвонил первым.",
-      },
-    ],
-    end: true,
-  },
-  end_after_code: {
-    screen: "ended",
-    entries: [
-      { who: "note", text: "Код вы отдали, но вовремя остановились. Дальше действовать нужно быстро." },
-      {
-        who: "note",
-        text: "1. Позвоните оператору по номеру с сайта: проверьте, какие операции и привязки появились. 2. Зайдите в «Госуслуги» и банк — посмотрите историю входов. 3. Смените пароли, отзовите чужие устройства.",
-      },
-    ],
-    end: true,
-  },
-  end_worst: {
-    screen: "ended",
-    entries: [
-      { who: "you", text: "Работаю в школе, зарплата 42 тысячи, получаю в Сбере." },
-      {
-        who: "note",
-        text: "Теперь у них есть код, место работы, доход и банк. Следующий звонок будет «из службы безопасности Сбера» — с точными деталями, которым хочется верить.",
-      },
-      {
-        who: "note",
-        text: "Что делать: позвонить оператору и в банк, сменить пароли, проверить кредитную историю и заявки на «Госуслугах».",
-      },
-    ],
-    end: true,
-  },
+/* Аудио по id реплики: мужской и женский голос одного и того же текста. */
+const AUDIO_M = {
+  hello: helloAudio,
+  who: whoAudio,
+  pitch: pitchAudio,
+  sms: smsAudio,
+  pressure: pressureAudio,
+  after_code: afterCodeAudio,
+  again: againAudio,
+  silence: silenceAudio,
+  bridge: bridgeAudio,
+  doubt: doubtAudio,
+  refuse: refuseAudio,
+  wait_code: waitCodeAudio,
+  hold_on: holdOnAudio,
 };
-
-/* Женские реплики того же сценария: при каждом новом разговоре «оператором»
-   может оказаться и мужчина, и женщина — голос подбирается вместе с репликами. */
-const VOICE_F = {
+const AUDIO_F = {
   hello: helloAudioF,
   who: whoAudioF,
   pitch: pitchAudioF,
   sms: smsAudioF,
   pressure: pressureAudioF,
   after_code: afterCodeAudioF,
+  again: againAudioF,
+  silence: silenceAudioF,
+  bridge: bridgeAudioF,
+  doubt: doubtAudioF,
+  refuse: refuseAudioF,
+  wait_code: waitCodeAudioF,
+  hold_on: holdOnAudioF,
 };
-Object.entries(VOICE_F).forEach(([id, src]) => {
-  if (NODES[id]) NODES[id].audioF = src;
-});
 
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -2104,30 +1984,323 @@ export function initPhone() {
       el.textContent = entry.text;
     } else {
       const text = entry.text.replace("{code}", state.code);
-      el.innerHTML = `<span class="line__who">${entry.who === "scam" ? "мошенник" : "Вы"}</span><span>${escapeHtml(
-        text,
-      )}</span>`;
+      const who = entry.who === "scam" ? "мошенник" : "Вы";
+      el.innerHTML = `<span class="line__who">${who}</span><span>${escapeHtml(text)}</span>`;
+      /* визуально колонки разделены сеткой, а скринридеру нужен цельный текст */
+      el.setAttribute("aria-label", `${who}: ${text}`);
     }
     log.append(el);
     log.scrollTop = log.scrollHeight;
   };
 
-  const renderChoices = (node) => {
-    choices.innerHTML = "";
-    if (node.end) {
-      if (reset) reset.hidden = false;
-      setHint("нажмите «Начать заново», чтобы пройти другой веткой");
+  /* ── голосовой диалог ─────────────────────────────────────────────
+     Мошенник говорит (аудио), затем телефон слушает человека. Распознанный
+     текст классифицируется по смыслу, и маршрут шага решает: ответить и идти
+     дальше, ответить и переспросить (если человек не по теме) или закончить.
+     Кнопок-вариантов нет: человек говорит своим голосом, а если браузер не
+     умеет распознавать речь — пишет ответ в поле. */
+
+  const speech = createSpeech({
+    lang: "ru-RU",
+    onFinal: (text) => onHeard(text),
+    onInterim: (text) => showInterim(text),
+    onError: (code) => onSpeechError(code),
+    onEnd: () => updateVoiceState(),
+  });
+
+  let meter = null;
+  let meterRaf = 0;
+  let listenTimer = 0;
+  let silenceCount = 0;
+  let stepId = CALL_START;
+  let awaiting = false;
+  let typeFallback = !speechSupported;
+  let lastHeard = "";
+  const sayQueue = [];
+
+  const trackFor = (id) => (state.gender === "f" ? AUDIO_F[id] : AUDIO_M[id]) || AUDIO_M[id];
+
+  /** Реплика мошенника: текст в лог + голос. */
+  const sayLine = (id, done) => {
+    const text = LINES[id];
+    if (!text) {
+      done?.();
       return;
     }
-    node.choices.forEach((choice, index) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "choice";
-      button.innerHTML = `<span class="choice__key">${index + 1}</span><span>${escapeHtml(choice.label)}</span>`;
-      button.addEventListener("click", () => go(choice.next));
-      choices.append(button);
+    appendLine({ who: "scam", text });
+    const track = trackFor(id);
+    if (track) playVoice(track, () => done?.());
+    else setTimeout(() => done?.(), isReduced ? 120 : 720);
+  };
+
+  const clearListenTimer = () => {
+    clearTimeout(listenTimer);
+    listenTimer = 0;
+  };
+
+  /* Микрофон нужен только для индикатора «вас слышно»: разрешение
+     спрашиваем один раз, при первом включении прослушивания. */
+  const ensureMeter = () => {
+    if (meter || typeFallback) return;
+    createMeter().then((created) => {
+      if (!created) return;
+      meter = created;
+      const loop = () => {
+        if (!meter) return;
+        const level = meter.level();
+        const bars = Array.from(choices.querySelectorAll(".voice__meter i"));
+        const active = Math.round(level * bars.length);
+        bars.forEach((bar, index) => {
+          bar.style.opacity = index < active ? "1" : "0.22";
+          bar.style.transform = `scaleY(${0.35 + Math.min(1, level * 1.6) * (index < active ? 1 : 0.2)})`;
+        });
+        meterRaf = requestAnimationFrame(loop);
+      };
+      if (!meterRaf) meterRaf = requestAnimationFrame(loop);
     });
-    setHint("дальше выбирайте ответы справа");
+  };
+
+  const stopMeter = () => {
+    cancelAnimationFrame(meterRaf);
+    meterRaf = 0;
+  };
+
+  const renderVoicePanel = (step, mode = "speaking") => {
+    const live = mode === "listening";
+    const waiting = mode === "thinking";
+    const statusText = live ? "слушаю вас" : waiting ? "разбираю ваш ответ" : "говорит мошенник";
+    choices.innerHTML = `
+      <div class="voice">
+        <div class="voice__head">
+          <span class="voice__dot ${live ? "is-live" : ""}"></span>
+          <span class="voice__state">${statusText}</span>
+          <span class="voice__mic">${live ? "микрофон включён" : ""}</span>
+        </div>
+        <div class="voice__meter" aria-hidden="true">${"<i></i>".repeat(28)}</div>
+        <p class="voice__heard" id="phone-heard">${
+          lastHeard ? `вы сказали: «${escapeHtml(lastHeard)}»` : live ? "скажите что-нибудь — я запишу ваш ответ" : "…"
+        }</p>
+        <p class="voice__hint">${escapeHtml(step?.hint ?? "")}</p>
+        <form class="voice__type" id="phone-type" ${live || typeFallback ? "" : "hidden"}>
+          <input id="phone-type-input" type="text" autocomplete="off" enterkeyhint="send"
+                 placeholder="${typeFallback ? "Микрофон недоступен — напишите ответ" : "или напишите ответ текстом"}" />
+          <button type="submit" class="voice__send">Сказать</button>
+        </form>
+        <p class="voice__note" id="phone-voice-note">${
+          typeFallback
+            ? "Этот браузер не распознаёт речь: ответьте текстом. Полноценный разговор — в Chrome или Edge."
+            : "Говорите обычным голосом. Распознаёт речь сам браузер."
+        }</p>
+      </div>`;
+    const form = choices.querySelector("#phone-type");
+    if (form) {
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const input = form.querySelector("input");
+        const value = input?.value.trim();
+        if (!value) return;
+        input.value = "";
+        onHeard(value);
+      });
+    }
+    if (live) ensureMeter();
+    else stopMeter();
+  };
+
+  const updateVoiceState = () => {
+    const stateEl = choices.querySelector(".voice__state");
+    if (stateEl) stateEl.textContent = awaiting ? "слушаю вас" : "говорит мошенник";
+    const dot = choices.querySelector(".voice__dot");
+    if (dot) dot.classList.toggle("is-live", awaiting);
+  };
+
+  const showInterim = (text) => {
+    const line = document.getElementById("phone-heard");
+    if (line) line.textContent = `«${text}…»`;
+  };
+
+  const showHeard = (text) => {
+    const line = document.getElementById("phone-heard");
+    if (line) line.textContent = `вы сказали: «${text}»`;
+    lastHeard = text;
+  };
+
+  const onSpeechError = (code) => {
+    const note = document.getElementById("phone-voice-note");
+    const form = document.getElementById("phone-type");
+    if (code === "not-allowed" || code === "service-not-allowed") {
+      typeFallback = true;
+      if (form) form.hidden = false;
+      if (note) note.textContent = "Нет доступа к микрофону — ответьте текстом в поле ниже.";
+      return;
+    }
+    if (code === "network") {
+      typeFallback = true;
+      if (form) form.hidden = false;
+      if (note) note.textContent = "Распознавание речи недоступно без сети — напишите ответ текстом.";
+      return;
+    }
+    if (code === "restart-limit") {
+      typeFallback = true;
+      if (form) form.hidden = false;
+      if (note) note.textContent = "Не расслышал. Напишите ответ текстом — или попробуйте сказать ещё раз.";
+    }
+  };
+
+  /** Слушаем ответ человека. */
+  const listen = (step) => {
+    awaiting = true;
+    silenceCount = 0;
+    renderVoicePanel(step, "listening");
+    clearListenTimer();
+    const my = generation;
+    listenTimer = setTimeout(() => {
+      if (my !== generation || !awaiting) return;
+      onSilence(step);
+    }, 14000);
+    if (!typeFallback) speech.start();
+    /* отладочная очередь фраз: позволяет прогнать диалог без микрофона */
+    if (sayQueue.length) {
+      const next = sayQueue.shift();
+      setTimeout(() => {
+        if (my === generation && awaiting) onHeard(next);
+      }, 120);
+    }
+  };
+
+  const onSilence = (step) => {
+    awaiting = false;
+    speech.stop();
+    silenceCount += 1;
+    const action = step.silence ?? { say: "silence", reask: true };
+    const my = generation;
+    if (silenceCount >= 3) {
+      /* третий раз молчит — мошенник не отступает и идёт по скрипту */
+      const next = step.routes?.yes?.next ?? "pressure";
+      enterStep(next);
+      return;
+    }
+    sayLine(action.say, () => {
+      if (my !== generation) return;
+      listen(step);
+    });
+  };
+
+  /** Разбор сказанного и маршрут шага. */
+  const onHeard = (text) => {
+    if (!awaiting) return;
+    awaiting = false;
+    clearListenTimer();
+    speech.stop();
+    const step = STEPS[stepId];
+    if (!step) return;
+    const intent = classifyUtterance(text, step);
+    appendLine({ who: "you", text });
+    showHeard(text);
+    if (intent === "code") {
+      const code = pickCode(text);
+      if (code) {
+        state.code = code;
+        gaveCode = true;
+      }
+    }
+    const action = step.routes?.[intent] ?? step.routes?.offtopic ?? {};
+    const my = generation;
+    if (action.say) {
+      sayLine(action.say, () => {
+        if (my !== generation) return;
+        if (action.reask || !action.next) listen(step);
+        else enterStep(action.next);
+      });
+      return;
+    }
+    if (action.next) {
+      enterStep(action.next);
+      return;
+    }
+    listen(step);
+  };
+
+  const finishCall = (step) => {
+    state.mode = "ended";
+    awaiting = false;
+    clearListenTimer();
+    speech.abort();
+    stopMeter();
+    stopTicker();
+    quietAudio();
+    if (volumeBox) volumeBox.hidden = true;
+    playHangup();
+    crossfade();
+    paint();
+    if (status) status.textContent = `разговор завершён · ${state.timer}`;
+    (step.outro ?? []).forEach((text) => appendLine({ who: "note", text }));
+    choices.innerHTML = `
+      <div class="voice voice--done">
+        <p class="voice__title">${escapeHtml(step.title ?? "Разговор завершён")}</p>
+        <p class="voice__note">Разбор — в журнале слева. «Начать заново» подберёт новый номер и новый голос.</p>
+      </div>`;
+    if (reset) reset.hidden = false;
+    setHint("нажмите «Начать заново», чтобы пройти разговор другим путём");
+  };
+
+  const enterStep = (id) => {
+    const step = STEPS[id];
+    if (!step) return;
+    generation += 1;
+    stepId = id;
+    state.step = id;
+    state.node = id;
+    awaiting = false;
+    clearListenTimer();
+    speech.abort();
+    stopMeter();
+    choices.innerHTML = "";
+    lastHeard = "";
+
+    if (step.end) {
+      finishCall(step);
+      return;
+    }
+
+    if (step.gaveCode) gaveCode = true;
+    if (id === "sms" && !state.smsShown) {
+      const my = generation;
+      setTimeout(() => {
+        if (my === generation) showSms();
+      }, 2400);
+    }
+    if (state.mode !== "active") {
+      state.mode = "active";
+      startTicker();
+    }
+    if (status) status.textContent = `разговор · ${state.timer} · запись`;
+    setHint("говорите обычным голосом — мошенник ответит");
+    paint();
+
+    renderVoicePanel(step, "speaking");
+    const replies = (step.replies ?? []).slice();
+    const my = generation;
+    const nextReply = () => {
+      if (my !== generation) return;
+      const replyId = replies.shift();
+      if (replyId) {
+        sayLine(replyId, () => {
+          if (my !== generation) return;
+          nextReply();
+        });
+        return;
+      }
+      (step.notes ?? []).forEach((text) => appendLine({ who: "note", text }));
+      listen(step);
+    };
+    nextReply();
+  };
+
+  const bindActions = () => {
+    choices.querySelectorAll("[data-phone-action]").forEach((button) => {
+      button.addEventListener("click", () => runAction(button.dataset.phoneAction));
+    });
   };
 
   const renderLockKeys = () => {
@@ -2135,9 +2308,7 @@ export function initPhone() {
       <div class="call__keys">
         <button type="button" class="choice" data-phone-action="unlock">Разблокировать</button>
       </div>`;
-    choices.querySelectorAll("[data-phone-action]").forEach((button) => {
-      button.addEventListener("click", () => runAction(button.dataset.phoneAction));
-    });
+    bindActions();
     setHint("");
   };
 
@@ -2147,93 +2318,22 @@ export function initPhone() {
         <button type="button" class="choice" data-phone-action="answer">Ответить</button>
         <button type="button" class="choice" data-phone-action="decline">Отклонить</button>
       </div>`;
-    choices.querySelectorAll("[data-phone-action]").forEach((button) => {
-      button.addEventListener("click", () => runAction(button.dataset.phoneAction));
-    });
-    setHint("нажмите «Ответить» или «Отклонить» на экране телефона");
+    bindActions();
+    setHint("нажмите «Ответить» на экране телефона и говорите обычным голосом");
   };
 
-  const playEntries = (node, done) => {
-    const entries = node.entries ?? [];
-    const myGeneration = generation;
-    if (!entries.length) {
-      done();
-      return;
-    }
-    let index = 0;
-    const step = () => {
-      if (myGeneration !== generation) return;
-      if (index >= entries.length) {
-        done();
-        return;
-      }
-      const entry = entries[index];
-      index += 1;
-      appendLine(entry);
-      const track = state.gender === "f" ? node.audioF || node.audio : node.audio;
-      if (entry.who === "scam" && track) {
-        playVoice(track, () => {
-          if (myGeneration === generation) setTimeout(step, 380);
-        });
-        return;
-      }
-      setTimeout(step, isReduced ? 60 : 700);
-    };
-    step();
-  };
-
-  const go = (id) => {
-    const node = NODES[id];
-    if (!node) return;
+  /** Экран входящего: кнопки на самом телефоне дублируются на панели. */
+  const showIncoming = () => {
     generation += 1;
-    state.node = id;
-
-    /* каждый вход на блокировку — новый набор сообщений */
-    if (id === "incoming" && state.view === "locked") {
-      state.notifications = makeNotifications();
-      paintLayer();
-    }
-    if (id === "incoming") {
-      /* после свайпа экран уже звонок: подпись должна это отражать */
-      if (status) status.textContent = "входящий · 00:00";
-    }
-    if (id === "hello") {
-      state.mode = "active";
-      startTicker();
-      if (volumeBox) volumeBox.hidden = false;
-      if (status) status.textContent = "разговор · 00:00 · запись";
-      paint();
-    }
-    if (id === "after_code") gaveCode = true;
-    if (id === "sms" && !state.smsShown) {
-      const myGeneration = generation;
-      setTimeout(() => {
-        if (myGeneration === generation) showSms();
-      }, 2400);
-    }
-    if (node.screen === "ended") {
-      state.mode = "ended";
-      stopTicker();
-      quietAudio();
-      if (volumeBox) volumeBox.hidden = true;
-      playHangup();
-      crossfade();
-      paint();
-      if (status) status.textContent = `разговор завершён · ${state.timer}`;
-    }
-
-    choices.innerHTML = "";
-    if (reset) reset.hidden = true;
-
-    if (node.end) {
-      playEntries(node, () => renderChoices(node));
-      return;
-    }
-    if (id === "incoming") {
-      renderIncomingKeys();
-      return;
-    }
-    playEntries(node, () => renderChoices(node));
+    stepId = "incoming";
+    state.node = "incoming";
+    state.mode = "incoming";
+    awaiting = false;
+    clearListenTimer();
+    speech.abort();
+    stopMeter();
+    renderIncomingKeys();
+    if (status) status.textContent = "входящий · 00:00";
   };
 
   const runAction = (action) => {
@@ -2242,21 +2342,32 @@ export function initPhone() {
       return;
     }
     if (action === "answer" && state.mode === "incoming" && introDone) {
-      go("hello");
+      /* жест пользователя: самое время попросить микрофон */
+      if (!typeFallback) ensureMeter();
+      enterStep(CALL_START);
       return;
     }
     if (action === "decline" && state.mode === "incoming" && introDone) {
-      go("end_declined");
+      enterStep("end_declined");
       return;
     }
     if (action === "hangup" && state.mode === "active") {
-      go(gaveCode ? "end_after_code" : "end_declined");
+      enterStep(gaveCode ? "end_after_code" : "end_declined");
     }
   };
 
   const restart = () => {
     generation += 1;
     gaveCode = false;
+    /* диалог начинается заново: сбрасываем шаг и ожидание речи */
+    stepId = "incoming";
+    awaiting = false;
+    silenceCount = 0;
+    lastHeard = "";
+    sayQueue.length = 0;
+    clearListenTimer();
+    speech.abort();
+    stopMeter();
     stopTicker();
     quietAudio(0);
     // сигналы вызова с прошлого прохода не должны висеть на новом
@@ -2697,7 +2808,7 @@ export function initPhone() {
           revealed = false;
           swipe.active = false;
           swipe.pointerId = null;
-          go("incoming");
+          showIncoming();
           paint();
         }
       } else if (!swipe.active && (state.unlock ?? 0) > 0) {
@@ -2717,7 +2828,9 @@ export function initPhone() {
          непрозрачна (по жалобе «исчезает почти сразу»), и только на
          последних сантиметрах уходит в прозрачность. */
       const vanish = clamp01((u - 0.55) / 0.45);
-      layerMat.opacity = 1 - vanish * 0.5;
+      /* К самому верху шторка должна исчезнуть полностью: раньше она
+         оставалась на 50% и читалась тёмной плашкой поверх звонка. */
+      layerMat.opacity = 1 - vanish;
       /* Чем дальше уехала шторка, тем сильнее расфокус контента:
          на настоящем экране блокировки часы и уведомления мутнеют,
          а не уезжают резкой картинкой. */
@@ -2969,8 +3082,14 @@ export function initPhone() {
     window.__phone = {
       seek: (s) => { introStart = performance.now() - s * 1000; ringsAt = introStart; introDone = false; RING_TIMES.forEach((t, i) => { rings[i].start = t; }); tick(); group.updateMatrixWorld(true); updateClip(); renderer.render(scene, camera); },
       tick,
-      go,
-      forceUnlock: () => { state.view = "call"; go("incoming"); paint(); },
+      go: (id) => (id === "incoming" ? showIncoming() : enterStep(id)),
+      /* Проверка диалога без микрофона: прогнать фразу как распознанную. */
+      say: (text) => {
+        if (awaiting) onHeard(text);
+        else sayQueue.push(text);
+      },
+      answer: () => runAction("answer"),
+      forceUnlock: () => { state.view = "call"; showIncoming(); paint(); },
       state,
       /* Отладка сцены: поворот, состояние фона и кадр. Только под ?dbg. */
       rotate: (y, x = 0) => {
@@ -3021,6 +3140,9 @@ export function initPhone() {
         mode: state.mode,
         introDone,
         swipeActive: swipe.active,
+        awaiting,
+        step: stepId,
+        heard: lastHeard,
         unlocking,
         fade: +fadeMat.opacity.toFixed(2),
         glowOpacity: +glow.material.opacity.toFixed(3),
