@@ -2150,7 +2150,6 @@ export function initPhone() {
   /** Слушаем ответ человека. */
   const listen = (step) => {
     awaiting = true;
-    silenceCount = 0;
     renderVoicePanel(step, "listening");
     clearListenTimer();
     const my = generation;
@@ -2190,6 +2189,7 @@ export function initPhone() {
   const onHeard = (text) => {
     if (!awaiting) return;
     awaiting = false;
+    silenceCount = 0;
     clearListenTimer();
     speech.stop();
     const step = STEPS[stepId];
@@ -2296,6 +2296,17 @@ export function initPhone() {
     };
     nextReply();
   };
+
+  /* iOS и Chrome разрешают звук только после жеста: разблокируем контекст
+     на первом касании страницы, чтобы реплика зазвучала без задержки. */
+  const unlockAudio = () => {
+    const ctx = ensureAudio();
+    ctx?.resume?.();
+    window.removeEventListener("pointerdown", unlockAudio);
+    window.removeEventListener("touchstart", unlockAudio);
+  };
+  window.addEventListener("pointerdown", unlockAudio, { passive: true });
+  window.addEventListener("touchstart", unlockAudio, { passive: true });
 
   const bindActions = () => {
     choices.querySelectorAll("[data-phone-action]").forEach((button) => {
@@ -3141,6 +3152,7 @@ export function initPhone() {
         introDone,
         swipeActive: swipe.active,
         awaiting,
+        speechListening: speech.listening,
         step: stepId,
         heard: lastHeard,
         unlocking,
