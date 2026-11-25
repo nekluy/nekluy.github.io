@@ -51,7 +51,7 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
 
   const MODEL_CACHE = "ne-kluy-vosk-v1";
   const RANGE_CHUNK = 4 * 1024 * 1024;
-  const RANGE_CONCURRENCY = 4;
+  const RANGE_CONCURRENCY = 1;
   const RANGE_TIMEOUT = 20000;
 
   const abortAfter = (ms) => {
@@ -154,7 +154,7 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
   };
 
   /* GitHub Pages отдаёт 46 МБ одной качалкой с обрывом на 89%;
-     качаем кусками по 4 МБ, по четыре параллельно, с ретраями. */
+     качаем кусками по 4 МБ последовательно, чтобы не залипали потоки. */
   const downloadModel = async () => {
     const cached = await readCachedModel();
     if (cached) {
