@@ -2044,14 +2044,16 @@ export function initPhone() {
         <div class="voice__head">
           <span class="voice__dot ${live ? "is-live" : ""}"></span>
           <span class="voice__state">${statusText}</span>
-          <span class="voice__mic">${live ? "микрофон включён" : ""}</span>
+          <span class="voice__mic">${live && !voiceLoading ? "микрофон включён" : ""}</span>
         </div>
         ${live ? `<div class="voice__meter" aria-hidden="true">${"<i></i>".repeat(28)}</div>` : ""}
         <p class="voice__heard" id="phone-heard">${
           lastHeard
             ? `вы сказали: «${escapeHtml(lastHeard)}»`
             : live
-              ? "скажите что-нибудь — я запишу ваш ответ"
+              ? voiceLoading
+                ? "ещё загружаю модель — говорить пока рано"
+                : "скажите что-нибудь — я запишу ваш ответ"
               : typing
                 ? "наберите ответ и нажмите «Сказать»"
                 : "…"
@@ -2092,8 +2094,16 @@ export function initPhone() {
     /* в текстовом режиме панель не должна «звучать»: микрофона там нет */
     if (stateEl) {
       stateEl.textContent =
-        panelMode === "typing" ? "напишите ответ" : awaiting ? "слушаю вас" : "говорит мошенник";
+        panelMode === "typing"
+          ? "напишите ответ"
+          : awaiting
+            ? voiceLoading
+              ? "готовлю распознавание…"
+              : "слушаю вас"
+            : "говорит мошенник";
     }
+    const mic = choices.querySelector(".voice__mic");
+    if (mic) mic.textContent = awaiting && !voiceLoading ? "микрофон включён" : "";
     const dot = choices.querySelector(".voice__dot");
     if (dot) dot.classList.toggle("is-live", awaiting);
   };
@@ -2236,6 +2246,12 @@ export function initPhone() {
             ? "Скачиваю локальную модель: " + Math.round(progress * 100) + "%. Говорить можно, как только появится «слушаю вас»."
             : "Скачиваю локальную модель распознавания — один раз, дальше из кэша.";
         }
+        /* Пока модель грузится, микрофон ещё не слушает: не показываем
+           «включён» и не предлагаем говорить — иначе человек говорит в тишину. */
+        const mic = choices.querySelector(".voice__mic");
+        if (mic) mic.textContent = "";
+        const heardEl = document.getElementById("phone-heard");
+        if (heardEl && !lastHeard) heardEl.textContent = "ещё загружаю модель — говорить пока рано";
         return;
       }
       if (mode !== "ready") return;
@@ -2244,6 +2260,10 @@ export function initPhone() {
       if (stateEl) stateEl.textContent = "слушаю вас";
       const note = document.getElementById("phone-voice-note");
       if (note) note.textContent = "Локальная модель готова: голос не уходит с устройства.";
+      const mic = choices.querySelector(".voice__mic");
+      if (mic) mic.textContent = awaiting ? "микрофон включён" : "";
+      const heardEl = document.getElementById("phone-heard");
+      if (heardEl && !lastHeard) heardEl.textContent = "скажите что-нибудь — я запишу ваш ответ";
       choices.querySelector(".voice__dot")?.classList.add("is-live");
       if (!awaiting) return;
       clearListenTimer();

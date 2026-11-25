@@ -100,7 +100,7 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
     const reader = res.body?.getReader();
     if (!reader) {
       chunks.push(new Uint8Array(await res.arrayBuffer()));
-      onState?.("loading", 1);
+      onState?.("loading", 0.99);
       return new Blob(chunks, { type: "application/gzip" });
     }
     for (;;) {
@@ -158,7 +158,7 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
   const downloadModel = async () => {
     const cached = await readCachedModel();
     if (cached) {
-      onState?.("loading", 1);
+      onState?.("loading", 0.99);
       return cached;
     }
     const probe = await fetch(modelUrl, {
@@ -198,7 +198,7 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
     await Promise.all(
       Array.from({ length: Math.min(RANGE_CONCURRENCY, ranges.length) }, worker),
     );
-    onState?.("loading", 1);
+    onState?.("loading", 0.99);
     return new Blob(buffers, { type: "application/gzip" });
   };
 
