@@ -277,6 +277,10 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
   return {
     supported: true,
     engine: "vosk",
+    /** Скачать и инициализировать модель без микрофона: прогреваем при входе. */
+    prepare() {
+      return loadModel();
+    },
     start() {
       wantListen = true;
       if (listeningState || starting) return;

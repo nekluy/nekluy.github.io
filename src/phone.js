@@ -2275,6 +2275,23 @@ export function initPhone() {
     },
   });
 
+  /* 46 МБ модели не должны ждать первого ответа: в Opera GX и Firefox
+     локальный движок — единственный, поэтому качаем его сразу после
+     загрузки страницы, пока человек читает вступление. Микрофон при этом
+     не включается. Если включён режим экономии трафика — не качаем. */
+  if (speechMode === "local" && !navigator.connection?.saveData) {
+    const warmLocalModel = () => {
+      localSpeech?.prepare?.().catch(() => {
+        if (!awaiting) voiceLoading = false;
+      });
+    };
+    if ("requestIdleCallback" in window) {
+      requestIdleCallback(warmLocalModel, { timeout: 1800 });
+    } else {
+      setTimeout(warmLocalModel, 900);
+    }
+  }
+
   /** Слушаем ответ человека. */
   const listen = (step) => {
     awaiting = true;
