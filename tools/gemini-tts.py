@@ -18,6 +18,7 @@ import json
 import os
 import pathlib
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -90,8 +91,22 @@ def pcm_to_mp3(pcm, rate=24000, bitrate=64):
     return bytes(enc.encode(pcm) + enc.flush())
 
 
-def tts(key, name, text, voice, suffix):
-    pcm, mime = request_tts(key, text, voice)
+def tts(key, name, text, voice, suffix, pause=4.0):
+    pcm = mime = None
+    for attempt in range(4):
+        try:
+            pcm, mime = request_tts(key, text, voice)
+            break
+        except urllib.error.HTTPError as err:
+            body = err.read().decode("utf-8", "replace")
+            if err.code in (429, 500, 503) and attempt < 3:
+                wait = 8 * (attempt + 1)
+                print(f"{name}: {err.code}, ждём {wait} с")
+                time.sleep(wait)
+                continue
+            raise RuntimeError(f"HTTP {err.code}: {body[:200]}")
+    if pcm is None:
+        raise RuntimeError("нет аудио")
     rate = 24000
     if "rate=" in mime:
         try:
@@ -103,6 +118,7 @@ def tts(key, name, text, voice, suffix):
     path.write_bytes(mp3)
     seconds = len(pcm) / 2 / rate
     print(f"{name}{suffix}: ок ({len(mp3)} байт, {seconds:.1f} с, {voice})")
+    time.sleep(pause)
 
 
 def check(key):

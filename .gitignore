@@ -15,3 +15,4 @@ tools/figma-out/
 .DS_Store
 tools/.gemini-key
 tools/voice-sample/
+tools/vosk/

@@ -62,13 +62,13 @@ LINES = {
 
 # ── edge ────────────────────────────────────────────────────────────
 
-async def edge_line(text: str, target: pathlib.Path, voice: str) -> bool:
+async def edge_line(text: str, target: pathlib.Path, voice: str, rate: str = EDGE_RATE) -> bool:
     """Сервис периодически отвечает пустым потоком — повторяем."""
     import edge_tts
 
     for _ in range(6):
         try:
-            communicate = edge_tts.Communicate(text, voice, rate=EDGE_RATE)
+            communicate = edge_tts.Communicate(text, voice, rate=rate)
             data = b""
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
@@ -80,6 +80,40 @@ async def edge_line(text: str, target: pathlib.Path, voice: str) -> bool:
             pass
         await asyncio.sleep(2.5)
     return False
+
+
+def polish_mp3(path: pathlib.Path, bitrate: int = 64) -> None:
+    """Убирает тишину по краям и выравнивает громкость.
+
+    Edge отдаёт реплики с паузами до полутора секунд: в разговоре это читается
+    как «завис». Режем по первому/последнему слышимому сэмплу и нормализуем пик.
+    """
+    try:
+        import numpy as np
+        import soundfile as sf
+    except ImportError:
+        return
+    if lameenc is None:
+        return
+    data, rate = sf.read(str(path), dtype="float32", always_2d=False)
+    if data.ndim > 1:
+        data = data.mean(axis=1)
+    peak = float(np.max(np.abs(data))) or 1.0
+    thr = max(0.004, peak * 0.02)
+    loud = np.where(np.abs(data) > thr)[0]
+    if len(loud):
+        start = max(0, loud[0] - int(0.04 * rate))
+        end = min(len(data), loud[-1] + int(0.10 * rate))
+        data = data[start:end]
+    peak = float(np.max(np.abs(data))) or 1.0
+    data = data * (0.89 / peak)
+    pcm = (np.clip(data, -1, 1) * 32767).astype("<i2").tobytes()
+    encoder = lameenc.Encoder()
+    encoder.set_bit_rate(bitrate)
+    encoder.set_in_sample_rate(rate)
+    encoder.set_channels(1)
+    encoder.set_quality(2)
+    path.write_bytes(bytes(encoder.encode(pcm) + encoder.flush()))
 
 
 # ── piper ───────────────────────────────────────────────────────────
@@ -131,6 +165,8 @@ def main() -> None:
     parser.add_argument("--voice", default=None)
     parser.add_argument("--only", default=None, help="озвучить одну реплику по id")
     parser.add_argument("--suffix", default="", help="приписка к имени файла, например -f для женского голоса")
+    parser.add_argument("--rate", default=EDGE_RATE, help="темп edge-голоса, например +6%%")
+    parser.add_argument("--polish", action="store_true", help="убрать тишину по краям и выровнять громкость")
     args = parser.parse_args()
 
     OUT.mkdir(parents=True, exist_ok=True)
@@ -141,7 +177,9 @@ def main() -> None:
         if args.engine == "piper":
             ok = piper_line(text, target, args.voice or PIPER_VOICE)
         else:
-            ok = asyncio.run(edge_line(text, target, args.voice or EDGE_VOICE))
+            ok = asyncio.run(edge_line(text, target, args.voice or EDGE_VOICE, args.rate))
+        if ok and args.polish:
+            polish_mp3(target)
         print(f"{key}: {'ок' if ok else 'НЕ ПОЛУЧИЛОСЬ'} ({target.stat().st_size if ok else 0} байт)", flush=True)
 
 
