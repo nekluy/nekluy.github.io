@@ -1822,7 +1822,9 @@ export function initPhone() {
     compressor.release.value = 0.22;
 
     voiceGain = audioCtx.createGain();
-    voiceGain.gain.value = volumeFraction() * 0.95;
+    /* закрыт, пока не играет реплика: открытый усилитель без источника —
+       это и был шум, который слышно сразу после клика по странице */
+    voiceGain.gain.value = 0;
 
     highpass.connect(presence).connect(lowpass).connect(shaper).connect(compressor).connect(voiceGain);
     voiceGain.connect(audioCtx.destination);
@@ -1855,7 +1857,7 @@ export function initPhone() {
 
   const applyVolume = () => {
     const value = volumeFraction();
-    if (voiceGain) voiceGain.gain.value = value * 0.95;
+    if (voiceGain) voiceGain.gain.value = voice ? value * 0.95 : 0;
     if (voice) voice.volume = Math.min(1, value + 0.15);
     if (volumeValue) volumeValue.textContent = `${Math.round(value * 100)}%`;
     // заливка дорожки подстраивается под значение — как в системных контролах
@@ -1868,6 +1870,7 @@ export function initPhone() {
   const stopVoice = () => {
     const el = voice;
     voice = null;
+    if (voiceGain) voiceGain.gain.value = 0;
     document.querySelector(".call__rec")?.classList.remove("is-speaking");
     if (!el) return;
     el.onended = null;
@@ -2401,17 +2404,6 @@ export function initPhone() {
     nextReply();
   };
 
-  /* iOS и Chrome разрешают звук только после жеста: разблокируем контекст
-     на первом касании страницы, чтобы реплика зазвучала без задержки. */
-  const unlockAudio = () => {
-    const ctx = ensureAudio();
-    ctx?.resume?.();
-    window.removeEventListener("pointerdown", unlockAudio);
-    window.removeEventListener("touchstart", unlockAudio);
-  };
-  window.addEventListener("pointerdown", unlockAudio, { passive: true });
-  window.addEventListener("touchstart", unlockAudio, { passive: true });
-
   const bindActions = () => {
     choices.querySelectorAll("[data-phone-action]").forEach((button) => {
       button.addEventListener("click", () => runAction(button.dataset.phoneAction));
@@ -2447,6 +2439,8 @@ export function initPhone() {
     clearListenTimer();
     speech.abort();
     renderIncomingKeys();
+    revealed = true;
+    paint();
     if (status) status.textContent = "входящий · 00:00";
   };
 
@@ -2456,7 +2450,8 @@ export function initPhone() {
       return;
     }
     if (action === "answer" && state.mode === "incoming" && introDone) {
-      /* жест пользователя: самое время попросить микрофон */
+      /* жест пользователя: разблокируем звук и просим микрофон */
+      ensureAudio()?.resume?.();
       if (!typeFallback) pulseMeter();
       enterStep(CALL_START);
       return;
@@ -2469,6 +2464,8 @@ export function initPhone() {
       enterStep(gaveCode ? "end_after_code" : "end_declined");
     }
   };
+
+  const isMobile = () => window.matchMedia("(max-width: 900px)").matches;
 
   const restart = () => {
     generation += 1;
@@ -2500,7 +2497,8 @@ export function initPhone() {
     if (volumeBox) volumeBox.hidden = true;
     Object.assign(state, {
       node: "incoming",
-      view: "locked",
+      /* телефон после «Начать заново» сразу на входящем — свайп не нужен */
+      view: isMobile() ? "call" : "locked",
       unlock: 0,
       mode: "incoming",
       gender: Math.random() < 0.5 ? "m" : "f",
@@ -2521,7 +2519,12 @@ export function initPhone() {
     paint();
     paintLayer();
     if (status) status.textContent = "";
-    renderLockKeys();
+    if (state.view === "call") {
+      revealed = true;
+      showIncoming();
+    } else {
+      renderLockKeys();
+    }
     crossfade();
   };
 
@@ -2642,6 +2645,21 @@ export function initPhone() {
   canvas.style.touchAction = "manipulation";
 
   canvas.style.cursor = "grab";
+
+  /* Браузер на телефоне всё равно начинает прокрутку страницы, пока палец
+     на экране телефона: touch-action в CSS до эффективного значения не доходит.
+     Гасим события касания сами — тогда свайп разблокировки не уезжает вместе
+     со страницей. */
+  /* Прокрутку страницы гасим только во время движения пальца: на touchstart
+     этого делать нельзя — смена overflow сдвигает макет и тап уходит мимо
+     кнопки «Ответить». */
+  canvas.addEventListener(
+    "touchmove",
+    (event) => {
+      if (event.touches.length < 2) event.preventDefault();
+    },
+    { passive: false },
+  );
 
   canvas.addEventListener("pointerdown", (event) => {
     // на заблокированном экране жест — свайп вверх, а не вращение модели
@@ -3024,7 +3042,14 @@ export function initPhone() {
         if (elapsed >= TIMELINE.ready && !introDone) {
           introDone = true;
           group.rotation.set(0, 0, 0);
-          if (status) status.textContent = "экран блокировки";
+          /* на телефоне свайп по экрану конфликтует с прокруткой страницы,
+             поэтому сразу показываем входящий — кнопки видны и нажимаются */
+          if (isMobile()) {
+            state.view = "call";
+            showIncoming();
+          } else if (status) {
+            status.textContent = "экран блокировки";
+          }
         }
       }
     } else if (!introDone) {
@@ -3193,6 +3218,10 @@ export function initPhone() {
     introDone = true;
     screenMat.opacity = 1;
     group.rotation.set(0, 0, 0);
+    if (isMobile()) {
+      state.view = "call";
+      showIncoming();
+    }
   }
 
   if (location.search.includes("dbg")) {
@@ -3217,6 +3246,10 @@ export function initPhone() {
       answer: () => runAction("answer"),
       simulateSpeechError: (code = "network") => onSpeechError(code),
       classify: (text) => classifyUtterance(text, STEPS[stepId] ?? {}),
+      designAt: (x, y) => pointerToDesign({ clientX: x, clientY: y }),
+      buttons: () => activeButtons(),
+      hitAt: (x, y) => hitTest(pointerToDesign({ clientX: x, clientY: y })),
+      buttonPos: (id) => BUTTONS[id],
       interim: (text) => showInterim(text),
       forceUnlock: () => { state.view = "call"; showIncoming(); paint(); },
       state,
@@ -3280,6 +3313,7 @@ export function initPhone() {
         fade: +fadeMat.opacity.toFixed(2),
         glowOpacity: +glow.material.opacity.toFixed(3),
         audio: audioCtx ? audioCtx.state : null,
+        gain: voiceGain ? +voiceGain.gain.value.toFixed(3) : null,
         voice: voice ? "играет" : "нет",
         ringsVisible: rings.filter((r) => r.mesh.visible).length,
       }),

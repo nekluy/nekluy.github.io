@@ -448,6 +448,12 @@ body.gated {
 /* Никакого blur: он мылил текст на экране. Резкость даёт разрешение текстуры. */
 #phone-canvas {
   filter: none;
+  /* палец по экрану телефона управляет звонком, а не прокруткой страницы */
+  touch-action: none;
+  overscroll-behavior: contain;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .phone__caption {
