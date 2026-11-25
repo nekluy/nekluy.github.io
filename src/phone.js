@@ -85,6 +85,16 @@ const COLOR = {
   vpn: "rgba(126, 228, 255, 0.95)",
 };
 
+/* SF Pro — системный шрифт Apple: на iPhone/Mac он берётся из системы.
+   На Windows и в Opera честной копии SF Pro нет, поэтому Inter — самый
+   близкий по метрикам открытый шрифт; вёрстка от этого не «плывёт». */
+const FONT_UI =
+  '"SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif';
+const FONT_DISPLAY =
+  '"SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif';
+const FONT_MONO =
+  '"SF Mono", "SFMono-Regular", ui-monospace, "JetBrains Mono", "Consolas", monospace';
+
 const BUTTONS = {
   decline: { x: 148, y: 884, r: 52, label: "Отклонить" },
   answer: { x: 364, y: 884, r: 52, label: "Ответить" },
@@ -362,9 +372,37 @@ function drawWallpaper(ctx) {
   ctx.fillRect(0, 0, DESIGN.w, DESIGN.h);
 }
 
+/** Тень по краям и диагональный блик стекла — общие для экрана и шторки. */
+function drawGlassShade(ctx) {
+  const shade = ctx.createRadialGradient(
+    DESIGN.w / 2,
+    DESIGN.h * 0.45,
+    DESIGN.w * 0.32,
+    DESIGN.w / 2,
+    DESIGN.h * 0.5,
+    DESIGN.w * 0.98,
+  );
+  shade.addColorStop(0, "rgba(0, 0, 0, 0)");
+  shade.addColorStop(1, "rgba(0, 0, 0, 0.46)");
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, DESIGN.w, DESIGN.h);
+
+  ctx.save();
+  ctx.translate(DESIGN.w * 0.1, -DESIGN.h * 0.12);
+  ctx.rotate(-0.36);
+  const sheen = ctx.createLinearGradient(0, 0, 0, DESIGN.h * 1.25);
+  sheen.addColorStop(0, "rgba(255, 255, 255, 0)");
+  sheen.addColorStop(0.4, "rgba(255, 255, 255, 0.06)");
+  sheen.addColorStop(0.56, "rgba(255, 255, 255, 0.018)");
+  sheen.addColorStop(1, "rgba(255, 255, 255, 0)");
+  ctx.fillStyle = sheen;
+  ctx.fillRect(0, 0, DESIGN.w * 1.7, DESIGN.h * 1.4);
+  ctx.restore();
+}
 function drawIsland(ctx, state) {
-  const w = state.islandW;
-  const h = state.islandH;
+  const live = state.mode === "active" && state.view !== "locked";
+  const w = live ? ISLAND.w + 16 : ISLAND.w;
+  const h = live ? ISLAND.h + 2 : ISLAND.h;
   const x = DESIGN.w / 2 - w / 2;
   const y = ISLAND.top;
 
@@ -395,80 +433,75 @@ function drawIsland(ctx, state) {
   }
 }
 
-/** Значок включённого VPN в строке состояния. */
-/** Значок VPN в строке состояния: справа, крупнее системных иконок. */
+/** Компактный значок VPN: слева от системных иконок, без текста. */
 function drawVpn(ctx) {
-  const w = 56;
-  const h = 30;
-  const x = 341; // справа, сразу за островом и перед иконками сети
-  const y = 53;
+  const x = 350;
+  const y = 55;
+  const size = 22;
 
-  roundRect(ctx, x, y, w, h, h / 2);
-  ctx.fillStyle = "rgba(126, 228, 255, 0.16)";
+  roundRect(ctx, x, y, size, size, 7);
+  ctx.fillStyle = "rgba(126, 228, 255, 0.13)";
   ctx.fill();
-  ctx.strokeStyle = "rgba(126, 228, 255, 0.32)";
+  ctx.strokeStyle = "rgba(126, 228, 255, 0.28)";
   ctx.lineWidth = 1;
   ctx.stroke();
 
   ctx.save();
-  ctx.translate(x + 15, y + h / 2);
-  ctx.scale(0.56, 0.56);
+  ctx.translate(x + size / 2, y + size / 2);
+  ctx.scale(0.42, 0.42);
   ctx.translate(-12, -12);
   ctx.fillStyle = COLOR.vpn;
   ctx.fill(shield);
   ctx.restore();
-
-  ctx.fillStyle = COLOR.vpn;
-  ctx.font = "700 12px 'JetBrains Mono', monospace";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-  ctx.fillText("VPN", x + 26, y + h / 2 + 0.5);
-  ctx.textBaseline = "alphabetic";
 }
 
+/* Слева направо: VPN → соты → Wi-Fi → батарея. Раньше VPN-плашка
+   стояла между сотами и Wi-Fi и наезжала на них; теперь она компактная
+   и вынесена влево, а три системных значка разведены по сетке. */
 function drawStatusBar(ctx, state) {
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = COLOR.text;
-  ctx.font = "600 26px 'Golos Text', sans-serif";
+  ctx.font = `600 26px ${FONT_UI}`;
   ctx.fillText(liveClock(), 38, 78);
 
   drawVpn(ctx);
 
-  // соты: правый край 405, чтобы не наезжать на Wi-Fi
+  // соты: 4 полоски, правый край 408 — до Wi-Fi остаётся 10 px
   const bars = [5, 9, 13, 17];
-  const sx = 403;
+  const sx = 384;
   bars.forEach((h, i) => {
-    roundRect(ctx, sx + i * 6.5, 72 - h, 4.6, h, 1.8);
+    roundRect(ctx, sx + i * 6.4, 78 - h, 4.4, h, 1.8);
     ctx.fillStyle = "rgba(243, 246, 251, 0.9)";
     ctx.fill();
   });
 
-  // Wi-Fi: центр 430, дуги до 445 — до батареи остаётся 13 px
-  const wx = 440;
+  // Wi-Fi: центр 430, дуги до 442 — до батареи остаётся 10 px
+  const wx = 430;
   ctx.strokeStyle = "rgba(243, 246, 251, 0.9)";
-  ctx.lineWidth = 2.6;
+  ctx.lineWidth = 2.4;
   ctx.lineCap = "round";
   for (let i = 0; i < 2; i += 1) {
     ctx.beginPath();
-    ctx.arc(wx, 72, 6.5 + i * 6, Math.PI * 1.22, Math.PI * 1.78);
+    ctx.arc(wx, 76, 7 + i * 5.5, Math.PI * 1.22, Math.PI * 1.78);
     ctx.stroke();
   }
   ctx.beginPath();
-  ctx.arc(wx, 71, 1.8, 0, Math.PI * 2);
+  ctx.arc(wx, 74, 1.8, 0, Math.PI * 2);
   ctx.fillStyle = "rgba(243, 246, 251, 0.9)";
   ctx.fill();
 
-  const bx = 462;
-  const by = 57;
+  // батарея: 24 × 14, правый край 486 — 26 px до края экрана
+  const bx = 459;
+  const by = 61;
   ctx.strokeStyle = "rgba(243, 246, 251, 0.5)";
   ctx.lineWidth = 2;
-  roundRect(ctx, bx, by, 26, 15, 4.5);
+  roundRect(ctx, bx, by, 24, 14, 4.5);
   ctx.stroke();
-  roundRect(ctx, bx + 3, by + 3, 17, 9, 2.6);
+  roundRect(ctx, bx + 3, by + 3, 15, 8, 2.6);
   ctx.fillStyle = "rgba(243, 246, 251, 0.9)";
   ctx.fill();
-  roundRect(ctx, bx + 28, by + 5, 2.4, 5.5, 1.2);
+  roundRect(ctx, bx + 26, by + 4, 2.4, 6, 1.2);
   ctx.fillStyle = "rgba(243, 246, 251, 0.5)";
   ctx.fill();
 }
@@ -490,25 +523,25 @@ function drawContact(ctx, state) {
   ctx.stroke();
 
   ctx.fillStyle = "rgba(243, 246, 251, 0.92)";
-  ctx.font = "600 64px 'Sofia Sans Extra Condensed', sans-serif";
+  ctx.font = `500 64px ${FONT_DISPLAY}`;
   ctx.textAlign = "center";
   ctx.fillText("?", cx, cy + 24);
 
   ctx.fillStyle = COLOR.text;
-  ctx.font = "600 44px 'Sofia Sans Extra Condensed', sans-serif";
+  ctx.font = `600 40px ${FONT_DISPLAY}`;
   ctx.fillText(state.name, cx, 456);
 
   ctx.fillStyle = "rgba(240, 245, 252, 0.92)";
-  ctx.font = "500 27px 'JetBrains Mono', monospace";
+  ctx.font = `500 27px ${FONT_MONO}`;
   ctx.fillText(state.number, cx, 500);
 
   ctx.fillStyle = COLOR.muted;
-  ctx.font = "400 20px 'Golos Text', sans-serif";
+  ctx.font = `400 20px ${FONT_UI}`;
   ctx.fillText("мобильный", cx, 534);
 
   if (state.mode !== "incoming") {
     ctx.fillStyle = "rgba(243, 246, 251, 0.9)";
-    ctx.font = "500 26px 'JetBrains Mono', monospace";
+    ctx.font = `500 26px ${FONT_MONO}`;
     ctx.fillText(state.timer, cx, 590);
   }
   ctx.textAlign = "left";
@@ -538,7 +571,7 @@ function drawButton(ctx, id, hover) {
 
   ctx.textAlign = "center";
   ctx.fillStyle = "rgba(243, 246, 251, 0.92)";
-  ctx.font = "400 21px 'Golos Text', sans-serif";
+  ctx.font = `400 21px ${FONT_UI}`;
   ctx.fillText(b.label, b.x, b.y + b.r + 34);
   ctx.textAlign = "left";
 }
@@ -628,7 +661,7 @@ function drawNotificationCard(ctx, card, x, y, w, h, alpha = 1, maxLines = 2) {
   ctx.textBaseline = "alphabetic";
   ctx.textAlign = "left";
   ctx.fillStyle = "rgba(255, 244, 246, 0.96)";
-  ctx.font = "600 21px 'Golos Text', sans-serif";
+  ctx.font = `600 21px ${FONT_UI}`;
   const timeWidth = 58;
   const title = card.title;
   let shown = title;
@@ -640,12 +673,12 @@ function drawNotificationCard(ctx, card, x, y, w, h, alpha = 1, maxLines = 2) {
 
   ctx.textAlign = "right";
   ctx.fillStyle = "rgba(255, 238, 240, 0.72)";
-  ctx.font = "500 17px 'Golos Text', sans-serif";
+  ctx.font = `500 17px ${FONT_UI}`;
   ctx.fillText(card.time, x + w - 20, y + 39);
 
   ctx.textAlign = "left";
   ctx.fillStyle = "rgba(255, 246, 248, 0.9)";
-  ctx.font = "400 19px 'Golos Text', sans-serif";
+  ctx.font = `400 19px ${FONT_UI}`;
   const maxWidth = w - (tx - x) - 26;
   ctx.save();
   roundRect(ctx, x, y, w, h, 34);
@@ -672,41 +705,42 @@ function drawNotifications(ctx, state) {
   });
 }
 
-/** Слой блокировки: часы, дата, уведомления, домашний индикатор.
+/** Слой блокировки: часы, дата, уведомления.
     Рисуется на прозрачном фоне — при свайпе он уезжает вверх как меш,
-    перерисовывать его в каждом кадре не нужно. */
+    перерисовывать его в каждом кадре не нужно. Домашний индикатор —
+    отдельный меш: он не должен уезжать вместе со шторкой и висеть
+    белой полоской посреди экрана. */
 function drawLockLayer(ctx, state) {
   ctx.setTransform(TEXTURE_SCALE, 0, 0, TEXTURE_SCALE, 0, 0);
   ctx.clearRect(0, 0, DESIGN.w, DESIGN.h);
-  /* лёгкая подложка: под шторкой может быть экран вызова, и сквозь
-     полупрозрачные карточки он не должен читаться деталями.
-     Непрозрачной заливки нет — иначе низ экрана выглядел чёрной плашкой. */
-  const veil = ctx.createLinearGradient(0, 0, 0, DESIGN.h);
-  veil.addColorStop(0, "rgba(12, 7, 12, 0.5)");
-  veil.addColorStop(0.62, "rgba(10, 6, 10, 0.44)");
-  veil.addColorStop(1, "rgba(8, 5, 9, 0.36)");
-  ctx.fillStyle = veil;
-  ctx.fillRect(0, 0, DESIGN.w, DESIGN.h);
+  /* Шторка непрозрачная: под ней может быть экран вызова, и он не должен
+     просвечивать сквозь часы и карточки с самого начала свайпа. Раньше здесь
+     была только полупрозрачная вуаль — при переключении подложки на звонок
+     кнопки «Ответить» читались сквозь экран блокировки. */
+  ctx.save();
+  roundRect(ctx, 0, 0, DESIGN.w, DESIGN.h, 74);
+  ctx.clip();
+  drawWallpaper(ctx);
+  drawGlassShade(ctx);
+  ctx.restore();
   drawStatusBar(ctx, state);
+  /* Остров — часть шторки, а не отдельный меш поверх сцены: при свайпе
+     он уезжает и обрезается вместе с часами и уведомлениями. */
+  drawIsland(ctx, state);
 
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = "rgba(255, 238, 240, 0.72)";
-  ctx.font = "500 26px 'Golos Text', sans-serif";
+  ctx.font = `500 26px ${FONT_UI}`;
   ctx.fillText(liveDate(), DESIGN.w / 2, 192);
 
   ctx.fillStyle = "rgba(255, 248, 249, 0.97)";
-  ctx.font = "400 160px 'Golos Text', sans-serif";
-  if ("letterSpacing" in ctx) ctx.letterSpacing = "-4px";
+  ctx.font = `600 158px ${FONT_DISPLAY}`;
+  if ("letterSpacing" in ctx) ctx.letterSpacing = "-5px";
   ctx.fillText(liveClock(), DESIGN.w / 2, 338);
   if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
 
   drawNotifications(ctx, state);
-
-  roundRect(ctx, DESIGN.w / 2 - 84, DESIGN.h - 40, 168, 6, 3);
-  ctx.fillStyle = "rgba(255, 246, 247, 0.62)";
-  ctx.fill();
-
 }
 
 /** СМС от того номера, который называл «оператор»: выезжает сверху баннером. */
@@ -768,7 +802,7 @@ function drawScreen(ctx, state) {
     } else {
       ctx.textAlign = "center";
       ctx.fillStyle = "rgba(214, 198, 202, 0.75)";
-      ctx.font = "400 22px 'Golos Text', sans-serif";
+      ctx.font = `400 22px ${FONT_UI}`;
       ctx.fillText("вызов завершён", DESIGN.w / 2, 900);
       ctx.textAlign = "left";
     }
@@ -782,34 +816,13 @@ function drawScreen(ctx, state) {
   roundRect(ctx, 0, 0, DESIGN.w, DESIGN.h, 74);
   ctx.clip();
 
-  const shade = ctx.createRadialGradient(
-    DESIGN.w / 2,
-    DESIGN.h * 0.45,
-    DESIGN.w * 0.32,
-    DESIGN.w / 2,
-    DESIGN.h * 0.5,
-    DESIGN.w * 0.98,
-  );
-  shade.addColorStop(0, "rgba(0, 0, 0, 0)");
-  shade.addColorStop(1, "rgba(0, 0, 0, 0.46)");
-  ctx.fillStyle = shade;
-  ctx.fillRect(0, 0, DESIGN.w, DESIGN.h);
-
-  ctx.save();
-  ctx.translate(DESIGN.w * 0.1, -DESIGN.h * 0.12);
-  ctx.rotate(-0.36);
-  const sheen = ctx.createLinearGradient(0, 0, 0, DESIGN.h * 1.25);
-  sheen.addColorStop(0, "rgba(255, 255, 255, 0)");
-  sheen.addColorStop(0.4, "rgba(255, 255, 255, 0.06)");
-  sheen.addColorStop(0.56, "rgba(255, 255, 255, 0.018)");
-  sheen.addColorStop(1, "rgba(255, 255, 255, 0)");
-  ctx.fillStyle = sheen;
-  ctx.fillRect(0, 0, DESIGN.w * 1.7, DESIGN.h * 1.4);
-  ctx.restore();
+  drawGlassShade(ctx);
   ctx.restore();
 
-  // остров рисуем поверх — он чёрный и перекрывает фон
-  drawIsland(ctx, state);
+  /* На блокировке остров живёт в отдельном слое шторки. В превью звонка
+     под шторкой его тоже нет: иначе чёрная капсула оставалась бы на месте,
+     пока шторка уезжает, и читалась как наклейка поверх экрана. */
+  if (state.view !== "locked" && !state.islandHidden) drawIsland(ctx, state);
   drawSmsBanner(ctx, state);
 }
 
@@ -1128,41 +1141,11 @@ export function initPhone() {
     depthWrite: false,
     opacity: 1,
   });
-  /* Расфокус контента при протяжке: три уровня резкости, построенные
-     заранее (в половинном разрешении — на глаз не отличить, а вдвое дешевле). */
-  const blurTextures = [];
-  let blurDirty = true;
-  let blurTimer = 0;
-  const buildBlurs = () => {
-    if (!blurDirty) return;
-    blurDirty = false;
-    while (blurTextures.length) {
-      const old = blurTextures.pop();
-      if (old !== layerTexture) old.dispose();
-    }
-    const radii = [0, 3, 5.5, 10];
-    radii.forEach((r) => {
-      if (r === 0) { blurTextures.push(layerTexture); return; }
-      const c = document.createElement("canvas");
-      c.width = Math.max(2, Math.round(layerCanvas.width / 2));
-      c.height = Math.max(2, Math.round(layerCanvas.height / 2));
-      const bx = c.getContext("2d");
-      if (!("filter" in bx)) { blurTextures.push(layerTexture); return; }
-      bx.filter = `blur(${(r * TEXTURE_SCALE * 0.5).toFixed(1)}px)`;
-      bx.drawImage(layerCanvas, 0, 0, c.width, c.height);
-      const t = new THREE.CanvasTexture(c);
-      t.colorSpace = THREE.SRGBColorSpace;
-      t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy() || 8);
-      blurTextures.push(t);
-    });
-  };
-  const setLayerSharpness = (level) => {
-    if (!blurTextures.length) return;
-    const next = blurTextures[Math.min(level, blurTextures.length - 1)] || layerTexture;
-    if (layerMat.map === next) return;
-    /* без needsUpdate: иначе three.js пересобирает программу и кадр мигает */
-    layerMat.map = next;
-  };
+  /* Раньше здесь было три заранее размытых текстуры, и слой переключался
+     между ними на порогах 8/34/60 % хода. Переключение давало заметный
+     «прыжок» резкости, а dispose() мог сработать на текстуре, которая ещё
+     висела в материале, — отсюда чёрные кадры на повторном свайпе.
+     Теперь слой всегда один и тот же: двигаем и плавно гасим его целиком. */
 
   const lockLayer = new THREE.Mesh(roundedPlane(screenW, screenH, (74 / DESIGN.w) * screenW), layerMat);
   lockLayer.position.z = depth / 2 + 0.068;
@@ -1182,68 +1165,25 @@ export function initPhone() {
   layerMat.clippingPlanes = [clipPlane];
   group.add(lockLayer);
 
-  /* ── Динамический остров отдельным мешем ────────────────────────────
-     Он должен быть поверх плашки разблокировки: она уезжает вверх, и если
-     остров нарисован только в текстуре экрана, плашка проходит над ним.
-     Меш повторяет капсулу, камеру и зелёную точку звонка. */
-  const islandCanvas = document.createElement("canvas");
-  const islandTexture = new THREE.CanvasTexture(islandCanvas);
-  islandTexture.colorSpace = THREE.SRGBColorSpace;
-  // размеры передаём аргументами: state объявляется позже, обращаться к нему нельзя
-  const paintIsland = (w = ISLAND.w, h = ISLAND.h) => {
-    const k = 3;
-    islandCanvas.width = Math.round(w * k);
-    islandCanvas.height = Math.round(h * k);
-    const ic = islandCanvas.getContext("2d");
-    ic.setTransform(k, 0, 0, k, 0, 0);
-    ic.clearRect(0, 0, w, h);
-    roundRect(ic, 0, 0, w, h, h / 2);
-    ic.fillStyle = "#000000";
-    ic.fill();
-    ic.strokeStyle = "rgba(255, 255, 255, 0.06)";
-    ic.lineWidth = 1;
-    ic.stroke();
-    // камера Face ID справа
-    const camX = w - 27;
-    const camY = h / 2;
-    ic.beginPath();
-    ic.arc(camX, camY, 6.6, 0, Math.PI * 2);
-    ic.fillStyle = "#141c2c";
-    ic.fill();
-    ic.beginPath();
-    ic.arc(camX - 2, camY - 2, 2.2, 0, Math.PI * 2);
-    ic.fillStyle = "rgba(120, 170, 255, 0.5)";
-    ic.fill();
-    islandTexture.needsUpdate = true;
-  };
-  paintIsland();
-
-  const islandMat = new THREE.MeshBasicMaterial({
-    map: islandTexture,
-    transparent: true,
-    depthWrite: false,
-  });
-  const islandMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), islandMat);
-  islandMesh.position.z = depth / 2 + 0.074;
-  group.add(islandMesh);
-
-  // зелёная точка «идёт звонок» — отдельный меш, чтобы пульсировать без перерисовки
-  const islandDot = new THREE.Mesh(
-    new THREE.CircleGeometry(0.026, 24),
-    new THREE.MeshBasicMaterial({ color: 0x30d158, transparent: true, opacity: 0.9, depthWrite: false }),
+  /* Домашний индикатор живёт отдельно: на заблокированном экране он виден,
+     а как только палец начинает тянуть шторку — гаснет. Иначе белая полоска
+     уезжала вместе с нижним краем шторки и оказывалась посреди экрана. */
+  const homeBar = new THREE.Mesh(
+    roundedPlane((168 / DESIGN.w) * screenW, (6 / DESIGN.h) * screenH, (3 / DESIGN.h) * screenH),
+    new THREE.MeshBasicMaterial({
+      color: 0xfff6f7,
+      transparent: true,
+      opacity: 0.62,
+      depthWrite: false,
+      toneMapped: false,
+    }),
   );
-  islandDot.position.z = depth / 2 + 0.075;
-  islandDot.visible = false;
-  group.add(islandDot);
+  homeBar.position.set(0, screenH / 2 - (1060 / DESIGN.h) * screenH, depth / 2 + 0.071);
+  group.add(homeBar);
 
-  const layoutIsland = (w = ISLAND.w, h = ISLAND.h) => {
-    islandMesh.scale.set((1.75 * w) / DESIGN.w, (3.8 * h) / DESIGN.h, 1);
-    const cy = screenH / 2 - ((ISLAND.top + h / 2) / DESIGN.h) * screenH;
-    islandMesh.position.y = cy;
-    const dotX = -screenW / 2 + ((DESIGN.w / 2 - w / 2 + 30) / DESIGN.w) * screenW;
-    islandDot.position.set(dotX, cy, depth / 2 + 0.075);
-  };
-  layoutIsland();
+  /* Динамического острова отдельным мешем больше нет: он рисуется прямо
+     в текстуре блокировки/экрана. Так шторка накрывает его собой, а не
+     проходит под чёрной капсулой, которая «висела» поверх сцены. */
 
   /* Стекло экрана — отдельный слой на своём расстоянии от картинки.
      За счёт перспективы при повороте блик от студии едет по стеклу
@@ -1729,8 +1669,7 @@ export function initPhone() {
     phase: 0,
     clock: new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
     hover: null,
-    islandW: ISLAND.w,
-    islandH: ISLAND.h,
+    islandHidden: false,
   };
 
   const paint = () => {
@@ -1741,9 +1680,6 @@ export function initPhone() {
   const paintLayer = () => {
     drawLockLayer(lctx, state);
     layerTexture.needsUpdate = true;
-    blurDirty = true;
-    clearTimeout(blurTimer);
-    blurTimer = setTimeout(buildBlurs, 90);
   };
 
   let ticker = null;
@@ -2029,9 +1965,14 @@ export function initPhone() {
     onEnd: () => updateVoiceState(),
   });
 
-  /* Opera и Firefox не умеют Web Speech — там работает локальная модель */
+  /* Opera GX объявляет Web Speech, но сервис не отвечает: onstart не
+     приходит, сессия молча закрывается. Поэтому там сразу локальная модель.
+     Firefox её не объявляет вовсе — тоже локальная. */
+  const webSpeechUsable = speechSupported && !/\bOPR\//i.test(navigator.userAgent);
+  let speechMode = webSpeechUsable ? "web" : "local";
+  let voiceLoading = false;
   let localSpeech = null;
-  const engine = () => (speechSupported ? speech : localSpeech);
+  const engine = () => (speechMode === "local" ? localSpeech : speech);
 
   let listenTimer = 0;
   let silenceCount = 0;
@@ -2062,8 +2003,9 @@ export function initPhone() {
     else setTimeout(() => done?.(), isReduced ? 120 : 720);
   };
 
-  /* Сколько ждём тишины. Человек говорит — таймер продлевается по interim. */
-  const WAIT_MS = () => (typeFallback ? 60000 : 6000);
+  /* Сколько ждём тишины. Человек говорит — таймер продлевается по interim.
+     Пока качается локальная модель, тишиной это считать нельзя. */
+  const WAIT_MS = () => (typeFallback ? 60000 : voiceLoading ? 180000 : 6000);
 
   const clearListenTimer = () => {
     clearTimeout(listenTimer);
@@ -2089,7 +2031,9 @@ export function initPhone() {
     const waiting = mode === "thinking";
     const typing = mode === "typing";
     const statusText = live
-      ? "слушаю вас"
+      ? voiceLoading
+        ? "готовлю распознавание…"
+        : "слушаю вас"
       : waiting
         ? "разбираю ваш ответ"
         : typing
@@ -2118,11 +2062,13 @@ export function initPhone() {
                  placeholder="${typeFallback ? "Микрофон недоступен — напишите ответ" : "или напишите ответ текстом"}" />
           <button type="submit" class="voice__send">Сказать</button>
         </form>
-        <p class="voice__note" id="phone-voice-note">${
-          typeFallback
-            ? "Этот браузер не распознаёт речь: ответьте текстом. Полноценный разговор — в Chrome или Edge."
-            : "Говорите обычным голосом. Распознаёт речь сам браузер."
-        }</p>
+        <p class="voice__note" id="phone-voice-note">${typeFallback
+            ? "Микрофон сейчас недоступен — ответьте текстом, разговор продолжится."
+            : speechMode === "local"
+              ? voiceLoading
+                ? "Скачиваю локальную модель распознавания — один раз, дальше она работает из кэша."
+                : "Распознаёт локальная модель: голос не уходит с устройства."
+              : "Говорите обычным голосом. Распознаёт речь сам браузер."}</p>
       </div>`;
     const form = choices.querySelector("#phone-type");
     if (form) {
@@ -2196,14 +2142,55 @@ export function initPhone() {
     lastHeard = text;
   };
 
+  /* Web Speech сломался не по вине человека (сервис, сеть, движок) —
+     переключаемся на локальную Vosk-модель и продолжаем слушать, а не
+     отправляем сразу печатать. */
+  const switchToLocal = (code) => {
+    if (speechMode !== "web" || !localSpeech) return false;
+    speechMode = "local";
+    speechError = `${code}→local`;
+    typeFallback = false;
+    silenceCount = 0;
+    try {
+      speech.abort();
+    } catch {
+      /* уже остановлен */
+    }
+    if (!awaiting) return true;
+    clearListenTimer();
+    voiceLoading = true;
+    const my = generation;
+    /* модель весит 46 МБ: даём ей время скачаться, а не считаем это тишиной */
+    listenTimer = setTimeout(() => {
+      if (my !== generation || !awaiting) return;
+      onSilence(STEPS[stepId] ?? {});
+    }, 180000);
+    const stateEl = choices.querySelector(".voice__state");
+    if (stateEl) stateEl.textContent = "включаю локальное распознавание…";
+    const note = document.getElementById("phone-voice-note");
+    if (note) note.textContent = "Браузерный сервис не ответил. Скачиваю локальную модель — один раз, дальше из кэша.";
+    setHint("готовлю распознавание — можно говорить сразу, как услышите «слушаю вас»");
+    localSpeech.start();
+    return true;
+  };
+
   const onSpeechError = (code) => {
     speechError = code;
+    if (
+      speechMode === "web" &&
+      ["engine-dead", "network", "audio-capture", "service-not-allowed", "language-not-supported", "restart-limit"].includes(code)
+    ) {
+      switchToLocal(code);
+      return;
+    }
     typeFallback = true;
     const reason =
       code === "audio-capture"
         ? "Микрофон не найден — подключите его или напишите ответ текстом."
         : code === "not-allowed" || code === "service-not-allowed"
-          ? "Нет доступа к микрофону — ответьте текстом в поле ниже."
+          ? "Нет доступа к микрофону — разрешите его в адресной строке или ответьте текстом."
+          : code === "model"
+          ? "Локальная модель не загрузилась — проверьте сеть и нажмите «Начать заново»."
           : code === "network"
           ? "Распознавание речи недоступно без сети — напишите ответ текстом."
           : "Не расслышал. Напишите ответ текстом — или попробуйте сказать ещё раз.";
@@ -2233,13 +2220,38 @@ export function initPhone() {
     onPartial: (text) => showInterim(text),
     onError: (code) => onSpeechError(code),
     onState: (mode, progress) => {
-      if (mode !== "loading") return;
-      const stateEl = choices.querySelector(".voice__state");
-      if (stateEl) {
-        stateEl.textContent = progress > 0
-          ? `готовлю распознавание · ${Math.round(progress * 100)}%`
-          : "готовлю распознавание…";
+      if (mode === "loading") {
+        voiceLoading = true;
+        /* модель качается минуту на слабой сети — это не тишина в разговоре */
+        if (awaiting) clearListenTimer();
+        const stateEl = choices.querySelector(".voice__state");
+        if (stateEl) {
+          stateEl.textContent = progress > 0
+            ? "готовлю распознавание · " + Math.round(progress * 100) + "%"
+            : "готовлю распознавание…";
+        }
+        const note = document.getElementById("phone-voice-note");
+        if (note) {
+          note.textContent = progress > 0
+            ? "Скачиваю локальную модель: " + Math.round(progress * 100) + "%. Говорить можно, как только появится «слушаю вас»."
+            : "Скачиваю локальную модель распознавания — один раз, дальше из кэша.";
+        }
+        return;
       }
+      if (mode !== "ready") return;
+      voiceLoading = false;
+      const stateEl = choices.querySelector(".voice__state");
+      if (stateEl) stateEl.textContent = "слушаю вас";
+      const note = document.getElementById("phone-voice-note");
+      if (note) note.textContent = "Локальная модель готова: голос не уходит с устройства.";
+      choices.querySelector(".voice__dot")?.classList.add("is-live");
+      if (!awaiting) return;
+      clearListenTimer();
+      const my = generation;
+      listenTimer = setTimeout(() => {
+        if (my !== generation || !awaiting) return;
+        onSilence(STEPS[stepId] ?? {});
+      }, WAIT_MS());
     },
   });
 
@@ -2463,7 +2475,9 @@ export function initPhone() {
     clearListenTimer();
     engine()?.abort();
     renderIncomingKeys();
-    revealed = true;
+    revealed = false;
+    needsLockPaint = false;
+    state.islandHidden = false;
     paint();
     if (status) status.textContent = "входящий · 00:00";
   };
@@ -2507,6 +2521,15 @@ export function initPhone() {
     sayQueue.length = 0;
     clearListenTimer();
     engine()?.abort();
+    /* Ниже сценарий начинается заново. Флаги шторки тоже сбрасываем:
+       иначе после первого разговора «превью звонка» считается уже
+       нарисованным, и второй свайп идёт по устаревшей текстуре. */
+    revealed = false;
+    needsLockPaint = false;
+    state.islandHidden = false;
+    unlocking = false;
+    swipe.active = false;
+    swipe.pointerId = null;
     stopTicker();
     quietAudio(0);
     // сигналы вызова с прошлого прохода не должны висеть на новом
@@ -2537,8 +2560,7 @@ export function initPhone() {
       phase: 0,
       clock: new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
       hover: null,
-      islandW: ISLAND.w,
-      islandH: ISLAND.h,
+      islandHidden: false,
     });
     paint();
     paintLayer();
@@ -2605,6 +2627,8 @@ export function initPhone() {
   const swipe = { active: false, pointerId: null, startY: 0, lastMoveAt: 0 };
   let unlocking = false;
   let revealed = false;
+  /* под шторкой нарисовано превью звонка; после возврата надо вернуть обои */
+  let needsLockPaint = false;
   let unlockStartedAt = 0;
   let unlockFrom = 0;
   /* Разблокировка — как в iOS: экран должен уехать почти до половины,
@@ -2633,9 +2657,11 @@ export function initPhone() {
     if (!cancel && (state.unlock ?? 0) >= UNLOCK_THRESHOLD) {
       finishUnlock();
     } else if (revealed) {
-      /* шторка возвращается — под ней снова экран блокировки */
-      revealed = false;
-      paint();
+      /* Шторка возвращается. Не перерисовываем экран в тот же кадр:
+         подложка под ней — превью звонка, и подмена на обои в середине
+         возврата читалась бы как вспышка. Дорисуем, когда слой доедет
+         до нуля (см. tick). */
+      needsLockPaint = true;
     }
     return true;
   };
@@ -2646,6 +2672,9 @@ export function initPhone() {
   const spin = { y: 0, x: 0 };
   /* возврат в исходное положение по двойному клику — анимированный */
   const home = { active: false, fromY: 0, fromX: 0, at: 0 };
+  /* Мягкий возврат, когда курсор ушёл с телефона или отпустили палец:
+     не мгновенный снэп и не «забыли, где оставили». */
+  const idle = { active: false, fromY: 0, fromX: 0, at: 0 };
   let lastGrabAt = 0;
 
   const releaseGrab = (event) => {
@@ -2666,7 +2695,10 @@ export function initPhone() {
     if (event) setHover(hitTest(pointerToDesign(event)));
   };
 
-  canvas.style.touchAction = "manipulation";
+  /* CSS уже просит none, но inline-стиль перебивал его на manipulation —
+     и палец на телефоне начинал прокручивать страницу, а браузер отменял
+     pointer capture посреди свайпа. Ставим none и здесь. */
+  canvas.style.touchAction = "none";
 
   canvas.style.cursor = "grab";
 
@@ -2686,8 +2718,13 @@ export function initPhone() {
   );
 
   canvas.addEventListener("pointerdown", (event) => {
+    /* Во время заставки телефон не хватаем: иначе невидимый drag копит
+       manual.x/y и после финального кадра телефон резко прыгает в сторону,
+       куда его «тянули», пока он ещё переворачивался. */
+    if (!introDone) return;
+
     // на заблокированном экране жест — свайп вверх, а не вращение модели
-    if (introDone && state.view === "locked" && pointerToDesign(event)) {
+    if (state.view === "locked" && pointerToDesign(event)) {
       event.preventDefault();
       swipe.active = true;
       swipe.pointerId = event.pointerId;
@@ -2697,6 +2734,7 @@ export function initPhone() {
       /* один раз на жест: под шторкой должен быть звонок, а не обои */
       if (!revealed) {
         revealed = true;
+        state.islandHidden = true;
         const keep = state.view;
         state.view = "call";
         paint();
@@ -2763,6 +2801,22 @@ export function initPhone() {
   });
 
   const onPointerUp = (event) => {
+    /* после пальца «наведения» нет: иначе телефон считает, что курсор
+       всё ещё над рамкой, и не возвращается домой. Для мыши проверяем
+       точку отпускания: с pointer capture событие придёт и за пределами
+       холста, а hovering остался бы true и блокировал возврат. */
+    const box = canvas.getBoundingClientRect();
+    const inside =
+      event &&
+      event.clientX >= box.left &&
+      event.clientX <= box.right &&
+      event.clientY >= box.top &&
+      event.clientY <= box.bottom;
+    if (event?.pointerType !== "mouse" || !inside) {
+      hovering = false;
+      target.x = 0;
+      target.y = 0;
+    }
     if (endSwipe()) return;
     releaseGrab(event);
   };
@@ -2773,6 +2827,10 @@ export function initPhone() {
   });
   canvas.addEventListener("pointerleave", () => {
     hovering = false;
+    /* убираем параллакс-цель: иначе при уходе курсора телефон сначала
+       отклонялся ещё сильнее, а уже потом возвращался */
+    target.x = 0;
+    target.y = 0;
     releaseGrab(null);
     setHover(null);
   });
@@ -2792,14 +2850,18 @@ export function initPhone() {
   });
   canvas.addEventListener("pointerenter", () => {
     hovering = true;
+    idle.active = false;
   });
 
   // двойной клик — плавно вернуть телефон в исходное положение
   canvas.addEventListener("dblclick", () => {
+    idle.active = false;
     home.active = true;
     home.fromY = manual.y;
     home.fromX = manual.x;
     home.at = performance.now();
+    spin.x = 0;
+    spin.y = 0;
   });
 
   /* ── заставка: спина → дрожь и сигналы → переворот ─────────────── */
@@ -2876,6 +2938,10 @@ export function initPhone() {
   stage.addEventListener(
     "pointermove",
     (event) => {
+      /* Параллакс живёт только пока курсор над рамкой телефона. Иначе
+         телефон продолжал бы наклоняться за курсором, ушедшим в сторону,
+         и «возврат домой» выглядел бы незавершённым. */
+      if (!hovering) return;
       const box = canvas.getBoundingClientRect();
       target.x = (event.clientX - box.left) / box.width - 0.5;
       target.y = (event.clientY - box.top) / box.height - 0.5;
@@ -2945,6 +3011,7 @@ export function initPhone() {
 
     if (state.view === "locked") {
       lockLayer.visible = true;
+      homeBar.visible = (state.unlock ?? 0) === 0;
       /* Сторожевой таймер на случай потерянного pointerup. Он НЕ разблокирует:
          «нет движения» не значит «отпустил» — человек может просто держать
          палец. Жест отменяется, шторка мягко возвращается. */
@@ -2966,10 +3033,11 @@ export function initPhone() {
           lockLayer.scale.set(1, 1, 1);
           layerMat.opacity = 1;
           revealed = false;
+          needsLockPaint = false;
+          state.islandHidden = false;
           swipe.active = false;
           swipe.pointerId = null;
           showIncoming();
-          paint();
         }
       } else if (!swipe.active && (state.unlock ?? 0) > 0) {
         /* Пока жест активен, слой держится за пальцем: раньше tick гасил
@@ -2979,6 +3047,13 @@ export function initPhone() {
         if (state.unlock < 0.004) state.unlock = 0;
       }
       const u = state.unlock ?? 0;
+      /* Возврат закончен — только теперь под шторкой снова обои. */
+      if (!swipe.active && !unlocking && u === 0 && needsLockPaint) {
+        needsLockPaint = false;
+        revealed = false;
+        state.islandHidden = false;
+        paint();
+      }
       /* Экран под шторкой переключается ТОЛЬКО в начале жеста (pointerdown)
          и при его отмене. Раньше это делалось по порогу u прямо в кадре:
          рука слегка колеблется вокруг порога — и текстура экрана
@@ -2987,21 +3062,17 @@ export function initPhone() {
       /* Плашка не должна таять на старте жеста: до 55% хода она полностью
          непрозрачна (по жалобе «исчезает почти сразу»), и только на
          последних сантиметрах уходит в прозрачность. */
-      const vanish = clamp01((u - 0.55) / 0.45);
+      const vanish = clamp01((u - 0.55) / 0.25);
       /* К самому верху шторка должна исчезнуть полностью: раньше она
          оставалась на 50% и читалась тёмной плашкой поверх звонка. */
       layerMat.opacity = 1 - vanish;
-      /* Чем дальше уехала шторка, тем сильнее расфокус контента:
-         на настоящем экране блокировки часы и уведомления мутнеют,
-         а не уезжают резкой картинкой. */
-      setLayerSharpness(u > 0.6 ? 3 : u > 0.34 ? 2 : u > 0.08 ? 1 : 0);
       // лёгкий уход в глубину — шторка отъезжает, а не просто скользит
       const shrink = 1 - vanish * 0.05;
       lockLayer.scale.set(shrink, shrink, 1);
     } else {
       lockLayer.visible = false;
       lockLayer.scale.set(1, 1, 1);
-      setLayerSharpness(0);
+      homeBar.visible = false;
     }
 
     if (state.sms) {
@@ -3065,7 +3136,23 @@ export function initPhone() {
         screenMat.opacity = 1;
         if (elapsed >= TIMELINE.ready && !introDone) {
           introDone = true;
+          /* Всё, что успели накопить невидимые drag'и за 5 секунд заставки,
+             обнуляем: после переворота телефон стоит ровно, а не прыгает
+             в положение, куда его тянули во время анимации. */
+          manual.x = 0;
+          manual.y = 0;
+          spin.x = 0;
+          spin.y = 0;
+          home.active = false;
+          idle.active = false;
+          pointer.x = 0;
+          pointer.y = 0;
+          target.x = 0;
+          target.y = 0;
+          lastGrabAt = now;
           group.rotation.set(0, 0, 0);
+          group.position.x = 0;
+          group.position.y = 0;
           /* на телефоне свайп по экрану конфликтует с прокруткой страницы,
              поэтому сразу показываем входящий — кнопки видны и нажимаются */
           if (isMobile()) {
@@ -3090,6 +3177,33 @@ export function initPhone() {
       // пока на телефон не навели курсор — он мелко дрожит: живой аппарат ждёт звонка
       const tremble = Math.sin(t * 26.5) * 0.0024 * free + Math.sin(t * 41) * 0.0009 * free;
 
+      /* Курсор ушёл / палец отпущен — телефон сам возвращается домой.
+         Пока курсор над рамкой или идёт захват, не мешаем. */
+      if (idle.active && (grab.active || hovering)) idle.active = false;
+      const canIdle =
+        introDone && !grab.active && !home.active && !swipe.active && !hovering && now - lastGrabAt > 700;
+      if (canIdle && !idle.active && (Math.abs(manual.x) > 0.002 || Math.abs(manual.y) > 0.002)) {
+        idle.active = true;
+        idle.fromX = manual.x;
+        idle.fromY = manual.y;
+        idle.at = now;
+        spin.x = 0;
+        spin.y = 0;
+      }
+      if (idle.active) {
+        const k = clamp01((now - idle.at) / 1200);
+        const eased = smoothstep(k);
+        manual.x = idle.fromX * (1 - eased);
+        manual.y = idle.fromY * (1 - eased);
+        spin.x = 0;
+        spin.y = 0;
+        if (k >= 1) {
+          manual.x = 0;
+          manual.y = 0;
+          idle.active = false;
+        }
+      }
+
       /* Плавный возврат в исходное положение по двойному клику. */
       if (home.active) {
         const k = clamp01((now - home.at) / 620);
@@ -3100,9 +3214,8 @@ export function initPhone() {
         spin.x = 0;
         if (k >= 1) home.active = false;
       }
-      /* Докрутка после отпускания. Телефон остаётся в том положении,
-         в котором его оставили: он твой, а не «возвращается сам». */
-      if (!grab.active && !home.active && (Math.abs(spin.y) > 0.0005 || Math.abs(spin.x) > 0.0005)) {
+      /* Докрутка после отпускания — короткая, до начала мягкого возврата. */
+      if (!grab.active && !home.active && !idle.active && (Math.abs(spin.y) > 0.0005 || Math.abs(spin.x) > 0.0005)) {
         manual.y += spin.y * dt;
         manual.x += spin.x * dt;
         const decay = Math.exp(-dt * 3.6);
@@ -3163,25 +3276,6 @@ export function initPhone() {
     halo.material.opacity = (active ? 0.36 : 0.32) * (0.82 + 0.18 * face) + beat * 0.045;
 
     signalGroup.position.set(group.position.x, group.position.y, -(extent + 0.55));
-
-    const targetW = state.mode === "active" ? ISLAND.w + 26 : ISLAND.w;
-    const targetH = state.mode === "active" ? ISLAND.h + 2 : ISLAND.h;
-    const dw = targetW - state.islandW;
-    const dh = targetH - state.islandH;
-    if (Math.abs(dw) > 0.4 || Math.abs(dh) > 0.2) {
-      const kIsland = 1 - Math.exp(-dt / 0.11);
-      state.islandW += dw * kIsland;
-      state.islandH += dh * kIsland;
-      paintIsland(state.islandW, state.islandH);
-      layoutIsland(state.islandW, state.islandH);
-      paint();
-    }
-
-    // зелёная точка звонка пульсирует поверх всех слоёв
-    islandDot.visible = state.mode === "active";
-    if (islandDot.visible) {
-      islandDot.material.opacity = 0.45 + 0.35 * Math.abs(Math.sin(t * 1.6));
-    }
 
     /* Затухание снимка предыдущего экрана — плавная смена кадра. */
     if (fadeMesh.visible) {
@@ -3328,12 +3422,19 @@ export function initPhone() {
         swipeActive: swipe.active,
         awaiting,
         speechListening: engine()?.listening ?? false,
+        speechMode,
+        voiceLoading,
         speechError,
         lastIntent,
         lastRoute,
         step: stepId,
         heard: lastHeard,
         unlocking,
+        manualY: +manual.y.toFixed(3),
+        manualX: +manual.x.toFixed(3),
+        hovering,
+        idle: idle.active,
+        islandHidden: state.islandHidden,
         fade: +fadeMat.opacity.toFixed(2),
         glowOpacity: +glow.material.opacity.toFixed(3),
         audio: audioCtx ? audioCtx.state : null,
@@ -3345,6 +3446,9 @@ export function initPhone() {
         state.view = "locked";
         state.unlock = v;
         unlocking = false;
+        revealed = false;
+        needsLockPaint = false;
+        state.islandHidden = false;
         tick();
         renderer.render(scene, camera);
       },

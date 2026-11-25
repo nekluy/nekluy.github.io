@@ -670,7 +670,7 @@ body.gated {
   outline-offset: 4px;
 }
 .call__volume-value {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.72rem;
   color: var(--text);
   min-width: 38px;

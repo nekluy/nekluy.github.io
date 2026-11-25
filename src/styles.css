@@ -22,9 +22,9 @@
   --coral: #ff6157;
   --violet: #9b8cff;
 
-  --font-body: "Golos Text", "Segoe UI", system-ui, sans-serif;
-  --font-display: "Sofia Sans Extra Condensed", "Golos Text", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "Consolas", monospace;
+  --font-body: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-display: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", "Consolas", monospace;
 
   --shell: 1180px;
   --radius: 18px;

@@ -44,6 +44,12 @@ export function createSpeech({ lang = "ru-RU", onFinal, onInterim, onError, onEn
   let restartTimer = 0;
   let lastStartAt = 0;
   let restarts = 0;
+  /* Opera GX объявляет SpeechRecognition, но сервис не отвечает: onstart
+     не приходит, сессия молча закрывается. Считаем такие «пустые» старты
+     и после второго отдаём наверх engine-dead — телефон переключится на
+     локальную модель, вместо того чтобы ждать в тишине. */
+  let emptyStarts = 0;
+  let startedThisTry = false;
 
   const build = () => {
     const instance = new Rec();
@@ -56,6 +62,8 @@ export function createSpeech({ lang = "ru-RU", onFinal, onInterim, onError, onEn
       listening = true;
       starting = false;
       restarts = 0;
+      emptyStarts = 0;
+      startedThisTry = true;
       if (onStart) onStart();
     };
 
@@ -93,6 +101,14 @@ export function createSpeech({ lang = "ru-RU", onFinal, onInterim, onError, onEn
       starting = false;
       if (onEnd) onEnd();
       if (!wantListen) return;
+      if (!startedThisTry) {
+        emptyStarts += 1;
+        if (emptyStarts >= 2) {
+          wantListen = false;
+          if (onError) onError("engine-dead");
+          return;
+        }
+      }
       /* браузер закрыл сессию (пауза, лимит времени) — поднимаем заново */
       if (restarts >= 40) {
         wantListen = false;
@@ -114,6 +130,7 @@ export function createSpeech({ lang = "ru-RU", onFinal, onInterim, onError, onEn
     if (!wantListen || listening || starting) return;
     if (!rec) rec = build();
     starting = true;
+    startedThisTry = false;
     lastStartAt = Date.now();
     try {
       rec.start();

@@ -21,6 +21,11 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
   let wantListen = false;
   let loading = null;
   let listeningState = false;
+  let starting = false;
+  /* Каждый start получает номер. Пока модель грузится, пользователь может
+     нажать «стоп» или начать заново — поздний ответ не должен поднять
+     второй микрофон и оставить висеть первый поток. */
+  let captureId = 0;
 
   const state = (value) => {
     listeningState = value;
@@ -84,12 +89,17 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
     }
   };
 
-  const startCapture = async () => {
+  const startCapture = async (id) => {
     const instance = await loadModel();
-    if (!wantListen) return;
-    stream = await navigator.mediaDevices.getUserMedia({
+    if (id !== captureId || !wantListen) return;
+    const mic = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
     });
+    if (id !== captureId || !wantListen) {
+      mic.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    stream = mic;
     /* просим сразу 16 кГц: Vosk ждёт именно их, иначе распознавание молчит */
     const Ctor = window.AudioContext || window.webkitAudioContext;
     try {
@@ -98,6 +108,10 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
       ctx = new Ctor();
     }
     await ctx.resume?.();
+    if (id !== captureId || !wantListen) {
+      teardown();
+      return;
+    }
     source = ctx.createMediaStreamSource(stream);
     const Recognizer = instance.KaldiRecognizer;
     recognizer = new Recognizer(ctx.sampleRate);
@@ -120,7 +134,9 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
     const mute = ctx.createGain();
     mute.gain.value = 0;
     processor.connect(mute).connect(ctx.destination);
+    starting = false;
     state(true);
+    onState?.("ready");
   };
 
   return {
@@ -128,26 +144,41 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
     engine: "vosk",
     start() {
       wantListen = true;
-      if (listeningState) return;
+      if (listeningState || starting) return;
+      starting = true;
+      const id = ++captureId;
       if (!model && !loading) onState?.("loading", 0);
-      startCapture().catch((err) => {
+      startCapture(id).catch((err) => {
+        starting = false;
+        if (id !== captureId) return;
         wantListen = false;
         state(false);
         teardown();
-        onError?.(err?.name === "NotAllowedError" ? "not-allowed" : "audio-capture");
+        onError?.(
+          err?.name === "NotAllowedError"
+            ? "not-allowed"
+            : err?.name === "NotFoundError"
+              ? "audio-capture"
+              : "model",
+        );
       });
     },
     stop() {
       wantListen = false;
-      state(false);
+      starting = false;
+      captureId += 1;
       try {
         recognizer?.retrieveFinalResult?.();
       } catch {
         /* пусто */
       }
+      state(false);
+      teardown();
     },
     abort() {
       wantListen = false;
+      starting = false;
+      captureId += 1;
       state(false);
       teardown();
     },
