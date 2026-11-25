@@ -43,6 +43,7 @@ import doubtAudio from "./audio/doubt.mp3";
 import refuseAudio from "./audio/refuse.mp3";
 import waitCodeAudio from "./audio/wait_code.mp3";
 import holdOnAudio from "./audio/hold_on.mp3";
+import codeExplainAudio from "./audio/code_explain.mp3";
 import againAudioF from "./audio/again-f.mp3";
 import silenceAudioF from "./audio/silence-f.mp3";
 import bridgeAudioF from "./audio/bridge-f.mp3";
@@ -50,6 +51,7 @@ import doubtAudioF from "./audio/doubt-f.mp3";
 import refuseAudioF from "./audio/refuse-f.mp3";
 import waitCodeAudioF from "./audio/wait_code-f.mp3";
 import holdOnAudioF from "./audio/hold_on-f.mp3";
+import codeExplainAudioF from "./audio/code_explain-f.mp3";
 import envStudio from "./assets/env-studio-hi.jpg";
 import { CALL_START, LINES, STEPS, classifyUtterance, pickCode } from "./data/call-script.js";
 import { createSpeech, createMeter, speechSupported } from "./speech.js";
@@ -101,6 +103,7 @@ const AUDIO_M = {
   refuse: refuseAudio,
   wait_code: waitCodeAudio,
   hold_on: holdOnAudio,
+  code_explain: codeExplainAudio,
 };
 const AUDIO_F = {
   hello: helloAudioF,
@@ -116,6 +119,7 @@ const AUDIO_F = {
   refuse: refuseAudioF,
   wait_code: waitCodeAudioF,
   hold_on: holdOnAudioF,
+  code_explain: codeExplainAudioF,
 };
 
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -2017,6 +2021,8 @@ export function initPhone() {
   let typeFallback = !speechSupported;
   let lastHeard = "";
   let speechError = "";
+  let lastIntent = "";
+  let lastRoute = "";
   const sayQueue = [];
 
   const trackFor = (id) => (state.gender === "f" ? AUDIO_F[id] : AUDIO_M[id]) || AUDIO_M[id];
@@ -2084,9 +2090,15 @@ export function initPhone() {
           <span class="voice__state">${statusText}</span>
           <span class="voice__mic">${live ? "микрофон включён" : ""}</span>
         </div>
-        <div class="voice__meter" aria-hidden="true">${"<i></i>".repeat(28)}</div>
+        ${live ? `<div class="voice__meter" aria-hidden="true">${"<i></i>".repeat(28)}</div>` : ""}
         <p class="voice__heard" id="phone-heard">${
-          lastHeard ? `вы сказали: «${escapeHtml(lastHeard)}»` : live ? "скажите что-нибудь — я запишу ваш ответ" : "…"
+          lastHeard
+            ? `вы сказали: «${escapeHtml(lastHeard)}»`
+            : live
+              ? "скажите что-нибудь — я запишу ваш ответ"
+              : typing
+                ? "наберите ответ и нажмите «Сказать»"
+                : "…"
         }</p>
         <p class="voice__hint">${escapeHtml(step?.hint ?? "")}</p>
         <form class="voice__type" id="phone-type" ${live || typeFallback ? "" : "hidden"}>
@@ -2108,7 +2120,10 @@ export function initPhone() {
         const value = input?.value.trim();
         if (!value) return;
         input.value = "";
-        onHeard(value);
+        /* напечатать можно и пока мошенник говорит: ответ не теряем, а
+           применяем в момент, когда придёт очередь слушать */
+        if (awaiting) onHeard(value);
+        else sayQueue.push(value);
       });
     }
     if (live) ensureMeter();
@@ -2148,6 +2163,7 @@ export function initPhone() {
     const note = document.getElementById("phone-voice-note");
     if (note) note.textContent = reason;
     document.getElementById("phone-type-input")?.focus({ preventScroll: true });
+    setHint("микрофон недоступен — напишите ответ в поле справа");
     /* перезапускаем ожидание с «печатным» лимитом */
     if (awaiting) {
       clearListenTimer();
@@ -2218,6 +2234,8 @@ export function initPhone() {
       }
     }
     const action = step.routes?.[intent] ?? step.routes?.offtopic ?? {};
+    lastIntent = intent;
+    lastRoute = JSON.stringify(action);
     const my = generation;
     if (action.say) {
       sayLine(action.say, () => {
@@ -2258,6 +2276,8 @@ export function initPhone() {
   };
 
   const enterStep = (id) => {
+    /* фраза, сказанная на прошлом шаге, не должна «переехать» в новый */
+    if (id !== stepId) sayQueue.length = 0;
     const step = STEPS[id];
     if (!step) return;
     generation += 1;
@@ -3126,6 +3146,8 @@ export function initPhone() {
         else sayQueue.push(text);
       },
       answer: () => runAction("answer"),
+      simulateSpeechError: (code = "network") => onSpeechError(code),
+      classify: (text) => classifyUtterance(text, STEPS[stepId] ?? {}),
       forceUnlock: () => { state.view = "call"; showIncoming(); paint(); },
       state,
       /* Отладка сцены: поворот, состояние фона и кадр. Только под ?dbg. */
@@ -3180,6 +3202,8 @@ export function initPhone() {
         awaiting,
         speechListening: speech.listening,
         speechError,
+        lastIntent,
+        lastRoute,
         step: stepId,
         heard: lastHeard,
         unlocking,
