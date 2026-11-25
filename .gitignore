@@ -13,3 +13,5 @@ tools/__pycache__/
 tools/figma-out/
 *.log
 .DS_Store
+tools/.gemini-key
+tools/voice-sample/
