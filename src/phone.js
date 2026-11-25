@@ -2178,7 +2178,8 @@ export function initPhone() {
   /** Слушаем ответ человека. */
   const listen = (step) => {
     awaiting = true;
-    renderVoicePanel(step, "listening");
+    /* если микрофон уже отвалился — слушать нечего, сразу текстовый режим */
+    renderVoicePanel(step, typeFallback ? "typing" : "listening");
     clearListenTimer();
     const my = generation;
     /* в текстовом режиме человек печатает дольше — не торопим его */
