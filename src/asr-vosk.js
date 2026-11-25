@@ -50,8 +50,9 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
   };
 
   const MODEL_CACHE = "ne-kluy-vosk-v1";
-  const RANGE_PARTS = 4;
-  const RANGE_TIMEOUT = 90000;
+  const RANGE_CHUNK = 4 * 1024 * 1024;
+  const RANGE_CONCURRENCY = 4;
+  const RANGE_TIMEOUT = 20000;
 
   const abortAfter = (ms) => {
     if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
@@ -114,7 +115,7 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
 
   const readRange = async (start, end, index, progress, add) => {
     const expected = end - start + 1;
-    for (let attempt = 0; attempt < 4; attempt += 1) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
       try {
         const res = await fetch(modelUrl, {
           headers: { Range: "bytes=" + start + "-" + end },
@@ -145,15 +146,15 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
       } catch (err) {
         progress.received -= progress.parts[index];
         progress.parts[index] = 0;
-        if (attempt === 3) throw err;
-        await new Promise((resolve) => setTimeout(resolve, 300 * 2 ** attempt));
+        if (attempt === 4) throw err;
+        await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
       }
     }
     throw new Error("range failed");
   };
 
   /* GitHub Pages отдаёт 46 МБ одной качалкой с обрывом на 89%;
-     четыре диапазона качаются параллельно и не залипают. */
+     качаем кусками по 4 МБ, по четыре параллельно, с ретраями. */
   const downloadModel = async () => {
     const cached = await readCachedModel();
     if (cached) {
@@ -173,23 +174,29 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
     const total = Number((probe.headers.get("content-range") || "").split("/")[1]) || VOSK_MODEL_SIZE;
     await probe.arrayBuffer();
     if (!total || total < 1024) throw new Error("модель пустая");
-    const parts = Math.min(RANGE_PARTS, Math.max(1, Math.ceil(total / (4 * 1024 * 1024))));
-    const chunk = Math.ceil(total / parts);
-    const buffers = new Array(parts);
-    const progress = { received: 0, parts: new Array(parts).fill(0) };
+    const ranges = [];
+    for (let start = 0; start < total; start += RANGE_CHUNK) {
+      ranges.push({ start, end: Math.min(total - 1, start + RANGE_CHUNK - 1) });
+    }
+    const buffers = new Array(ranges.length);
+    const progress = { received: 0, parts: new Array(ranges.length).fill(0) };
     const add = (index, bytes) => {
       progress.parts[index] += bytes;
       progress.received += bytes;
       onState?.("loading", Math.min(0.99, progress.received / total));
     };
+    let next = 0;
+    const worker = async () => {
+      for (;;) {
+        const index = next;
+        next += 1;
+        if (index >= ranges.length) return;
+        const { start, end } = ranges[index];
+        buffers[index] = await readRange(start, end, index, progress, add);
+      }
+    };
     await Promise.all(
-      Array.from({ length: parts }, (_, index) => {
-        const start = index * chunk;
-        const end = Math.min(total - 1, start + chunk - 1);
-        return readRange(start, end, index, progress, add).then((buffer) => {
-          buffers[index] = buffer;
-        });
-      }),
+      Array.from({ length: Math.min(RANGE_CONCURRENCY, ranges.length) }, worker),
     );
     onState?.("loading", 1);
     return new Blob(buffers, { type: "application/gzip" });
