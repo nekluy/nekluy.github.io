@@ -1,25 +1,30 @@
 /**
  * Распознавание речи в браузере.
  *
- * Используется Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`):
- * это есть в Chrome, Edge, Opera и Safari; в Firefox — нет. Звук при этом
- * обрабатывает сам браузер своим сервисом распознавания, поэтому в интерфейсе
- * честно написано, что микрофон работает только в этих браузерах.
+ * Работает на Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`):
+ * Chrome, Edge, Opera, Safari. Firefox не умеет — там сразу текстовый ввод.
  *
- * Обёртка решает три практические вещи:
- *  1. `continuous = false` — браузер сам завершает сессию после паузы; для
- *     разговора это удобно, но тогда сессию надо перезапускать, если ответ
- *     ещё не прозвучал (иначе «микрофон молчит»).
- *  2. Ошибки `no-speech` и `aborted` — это норма, а не сбой: молчание бывает.
- *  3. `not-allowed` / `service-not-allowed` — доступа нет, интерфейс должен
- *     переключиться на ввод текста.
+ * Практические решения, без которых «микрофон молчит»:
+ *  1. `continuous = true`: браузер не рвёт сессию после первой паузы. Safari
+ *     этот режим не держит, поэтому там `false` и перезапуск.
+ *  2. Промежуточные результаты (`interimResults`) отдаём наверх — человек
+ *     должен видеть, что его слышат, ещё до конца фразы.
+ *  3. `start()` нельзя звать дважды и сразу после `abort()`: держим флаг
+ *     `starting` и небольшую паузу, иначе Chrome бросает `InvalidStateError`,
+ *     а сессия остаётся мёртвой.
+ *  4. `no-speech` / `aborted` — не ошибка, а тишина: просто продолжаем слушать.
+ *  5. Никакого параллельного `getUserMedia`: второй захват микрофона ломает
+ *     распознавание (Chrome отдаёт тишину). Уровень показываем по факту
+ *     распознанного текста, а не отдельным потоком.
  */
 
 const Rec = typeof window !== "undefined" ? window.SpeechRecognition || window.webkitSpeechRecognition : null;
 
 export const speechSupported = Boolean(Rec);
 
-export function createSpeech({ lang = "ru-RU", onFinal, onInterim, onError, onEnd } = {}) {
+const IS_SAFARI = typeof navigator !== "undefined" && /^((?!chrome|android|crios|edg).)*safari/i.test(navigator.userAgent);
+
+export function createSpeech({ lang = "ru-RU", onFinal, onInterim, onError, onEnd, onStart } = {}) {
   if (!Rec) {
     return {
       supported: false,
@@ -34,20 +39,24 @@ export function createSpeech({ lang = "ru-RU", onFinal, onInterim, onError, onEn
 
   let rec = null;
   let listening = false;
+  let starting = false;
   let wantListen = false;
   let restartTimer = 0;
-  let restartCount = 0;
+  let lastStartAt = 0;
+  let restarts = 0;
 
   const build = () => {
     const instance = new Rec();
     instance.lang = lang;
-    instance.continuous = false;
+    instance.continuous = !IS_SAFARI;
     instance.interimResults = true;
-    instance.maxAlternatives = 1;
+    instance.maxAlternatives = 3;
 
     instance.onstart = () => {
       listening = true;
-      restartCount = 0;
+      starting = false;
+      restarts = 0;
+      if (onStart) onStart();
     };
 
     instance.onresult = (event) => {
@@ -55,13 +64,16 @@ export function createSpeech({ lang = "ru-RU", onFinal, onInterim, onError, onEn
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const result = event.results[i];
-        if (result.isFinal) finalText += result[0].transcript;
-        else interim += result[0].transcript;
+        let best = result[0];
+        for (let a = 1; a < result.length; a += 1) {
+          if ((result[a]?.confidence ?? 0) > (best?.confidence ?? 0)) best = result[a];
+        }
+        if (result.isFinal) finalText += `${best?.transcript ?? ""} `;
+        else interim += `${best?.transcript ?? ""} `;
       }
-      if (interim && onInterim) onInterim(interim.trim());
+      if (interim.trim() && onInterim) onInterim(interim.trim());
       if (finalText.trim()) {
-        restartCount = 0;
-        wantListen = false;
+        restarts = 0;
         if (onFinal) onFinal(finalText.trim());
       }
     };
@@ -69,7 +81,8 @@ export function createSpeech({ lang = "ru-RU", onFinal, onInterim, onError, onEn
     instance.onerror = (event) => {
       const code = event.error || "unknown";
       listening = false;
-      /* молчание и наш собственный abort — не ошибки */
+      starting = false;
+      /* тишина и наш собственный abort — это норма */
       if (code === "no-speech" || code === "aborted") return;
       wantListen = false;
       if (onError) onError(code);
@@ -77,42 +90,58 @@ export function createSpeech({ lang = "ru-RU", onFinal, onInterim, onError, onEn
 
     instance.onend = () => {
       listening = false;
+      starting = false;
       if (onEnd) onEnd();
-      /* если ответа всё ещё ждём — поднимаем сессию заново (браузер гасит её
-         после каждой фразы), но не бесконечно: 6 попыток подряд достаточно */
-      if (wantListen) {
-        if (restartCount >= 6) {
-          wantListen = false;
-          if (onError) onError("restart-limit");
-          return;
-        }
-        restartCount += 1;
-        clearTimeout(restartTimer);
-        restartTimer = setTimeout(() => {
-          if (!wantListen) return;
-          try {
-            instance.start();
-          } catch {
-            /* уже запущен */
-          }
-        }, 320);
+      if (!wantListen) return;
+      /* браузер закрыл сессию (пауза, лимит времени) — поднимаем заново */
+      if (restarts >= 40) {
+        wantListen = false;
+        if (onError) onError("restart-limit");
+        return;
       }
+      restarts += 1;
+      const wait = Math.max(60, 260 - (Date.now() - lastStartAt));
+      clearTimeout(restartTimer);
+      restartTimer = setTimeout(() => {
+        if (!wantListen) return;
+        tryStart();
+      }, wait);
     };
     return instance;
+  };
+
+  const tryStart = () => {
+    if (!wantListen || listening || starting) return;
+    if (!rec) rec = build();
+    starting = true;
+    lastStartAt = Date.now();
+    try {
+      rec.start();
+    } catch {
+      /* уже запущен — считаем, что слушаем */
+      starting = false;
+    }
+    /* страховка: если onstart не пришёл, сессия не поднялась */
+    setTimeout(() => {
+      if (starting) {
+        starting = false;
+        if (wantListen && !listening) {
+          try {
+            rec.abort();
+          } catch {
+            /* ничего */
+          }
+        }
+      }
+    }, 1200);
   };
 
   return {
     supported: true,
     start() {
-      if (!rec) rec = build();
       wantListen = true;
-      restartCount = 0;
-      if (listening) return;
-      try {
-        rec.start();
-      } catch {
-        /* start() дважды подряд бросает — это нормально */
-      }
+      restarts = 0;
+      tryStart();
     },
     stop() {
       wantListen = false;
@@ -134,56 +163,22 @@ export function createSpeech({ lang = "ru-RU", onFinal, onInterim, onError, onEn
         /* уже остановлен */
       }
     },
+    /** Полный сброс: следующая сессия начнётся с чистого объекта. */
+    reset() {
+      wantListen = false;
+      clearTimeout(restartTimer);
+      try {
+        rec?.abort();
+      } catch {
+        /* ничего */
+      }
+      rec = null;
+      listening = false;
+      starting = false;
+      restarts = 0;
+    },
     get listening() {
       return listening;
     },
   };
-}
-
-/**
- * Уровень микрофона для индикатора «вас слышно»: отдельный запрос доступа,
- * потому что Web Speech не отдаёт поток. Отказ не мешает распознаванию —
- * просто индикатор становится декоративным.
- */
-export async function createMeter() {
-  if (!navigator.mediaDevices?.getUserMedia) return null;
-  let stream = null;
-  let ctx = null;
-  let analyser = null;
-  let source = null;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    ctx = new (window.AudioContext || window.webkitAudioContext)();
-    analyser = ctx.createAnalyser();
-    analyser.fftSize = 512;
-    analyser.smoothingTimeConstant = 0.75;
-    source = ctx.createMediaStreamSource(stream);
-    source.connect(analyser);
-    return {
-      level() {
-        const buf = new Uint8Array(analyser.frequencyBinCount);
-        analyser.getByteFrequencyData(buf);
-        let sum = 0;
-        for (let i = 0; i < buf.length; i += 1) sum += buf[i];
-        return Math.min(1, sum / buf.length / 90);
-      },
-      release() {
-        try {
-          source?.disconnect();
-          stream?.getTracks().forEach((track) => track.stop());
-          ctx?.close();
-        } catch {
-          /* уже закрыто */
-        }
-      },
-    };
-  } catch {
-    try {
-      stream?.getTracks().forEach((track) => track.stop());
-      ctx?.close();
-    } catch {
-      /* ничего */
-    }
-    return null;
-  }
 }

@@ -44,6 +44,9 @@ import refuseAudio from "./audio/refuse.mp3";
 import waitCodeAudio from "./audio/wait_code.mp3";
 import holdOnAudio from "./audio/hold_on.mp3";
 import codeExplainAudio from "./audio/code_explain.mp3";
+import reassureAudio from "./audio/reassure.mp3";
+import moneyAudio from "./audio/money.mp3";
+import simpleAudio from "./audio/simple.mp3";
 import againAudioF from "./audio/again-f.mp3";
 import silenceAudioF from "./audio/silence-f.mp3";
 import bridgeAudioF from "./audio/bridge-f.mp3";
@@ -52,9 +55,12 @@ import refuseAudioF from "./audio/refuse-f.mp3";
 import waitCodeAudioF from "./audio/wait_code-f.mp3";
 import holdOnAudioF from "./audio/hold_on-f.mp3";
 import codeExplainAudioF from "./audio/code_explain-f.mp3";
+import reassureAudioF from "./audio/reassure-f.mp3";
+import moneyAudioF from "./audio/money-f.mp3";
+import simpleAudioF from "./audio/simple-f.mp3";
 import envStudio from "./assets/env-studio-hi.jpg";
 import { CALL_START, LINES, STEPS, classifyUtterance, pickCode } from "./data/call-script.js";
-import { createSpeech, createMeter, speechSupported } from "./speech.js";
+import { createSpeech, speechSupported } from "./speech.js";
 
 /* ── дизайн-сетка экрана ─────────────────────────────────────────── */
 
@@ -104,6 +110,9 @@ const AUDIO_M = {
   wait_code: waitCodeAudio,
   hold_on: holdOnAudio,
   code_explain: codeExplainAudio,
+  reassure: reassureAudio,
+  money: moneyAudio,
+  simple: simpleAudio,
 };
 const AUDIO_F = {
   hello: helloAudioF,
@@ -120,6 +129,9 @@ const AUDIO_F = {
   wait_code: waitCodeAudioF,
   hold_on: holdOnAudioF,
   code_explain: codeExplainAudioF,
+  reassure: reassureAudioF,
+  money: moneyAudioF,
+  simple: simpleAudioF,
 };
 
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -2012,10 +2024,11 @@ export function initPhone() {
     onEnd: () => updateVoiceState(),
   });
 
-  let meter = null;
-  let meterRaf = 0;
   let listenTimer = 0;
   let silenceCount = 0;
+  let offtopicCount = 0;
+  let heardAny = false;
+  let panelMode = "speaking";
   let stepId = CALL_START;
   let awaiting = false;
   let typeFallback = !speechSupported;
@@ -2040,39 +2053,29 @@ export function initPhone() {
     else setTimeout(() => done?.(), isReduced ? 120 : 720);
   };
 
+  /* Сколько ждём тишины. Человек говорит — таймер продлевается по interim. */
+  const WAIT_MS = () => (typeFallback ? 60000 : 6000);
+
   const clearListenTimer = () => {
     clearTimeout(listenTimer);
     listenTimer = 0;
   };
 
-  /* Микрофон нужен только для индикатора «вас слышно»: разрешение
-     спрашиваем один раз, при первом включении прослушивания. */
-  const ensureMeter = () => {
-    if (meter || typeFallback) return;
-    createMeter().then((created) => {
-      if (!created) return;
-      meter = created;
-      const loop = () => {
-        if (!meter) return;
-        const level = meter.level();
-        const bars = Array.from(choices.querySelectorAll(".voice__meter i"));
-        const active = Math.round(level * bars.length);
-        bars.forEach((bar, index) => {
-          bar.style.opacity = index < active ? "1" : "0.22";
-          bar.style.transform = `scaleY(${0.35 + Math.min(1, level * 1.6) * (index < active ? 1 : 0.2)})`;
-        });
-        meterRaf = requestAnimationFrame(loop);
-      };
-      if (!meterRaf) meterRaf = requestAnimationFrame(loop);
+  /* Полоски «вас слышно» рисуются по распознанному тексту, без второго
+     захвата микрофона: параллельный getUserMedia ломает распознавание. */
+  const pulseMeter = (strength = 0) => {
+    const bars = Array.from(choices.querySelectorAll(".voice__meter i"));
+    if (!bars.length) return;
+    const n = Math.max(2, Math.round(Math.min(1, 0.25 + strength) * bars.length));
+    bars.forEach((bar, index) => {
+      const on = index < n;
+      bar.style.opacity = on ? "1" : "0.2";
+      bar.style.transform = `scaleY(${on ? 0.45 + (strength || 0.25) : 0.3})`;
     });
   };
 
-  const stopMeter = () => {
-    cancelAnimationFrame(meterRaf);
-    meterRaf = 0;
-  };
-
   const renderVoicePanel = (step, mode = "speaking") => {
+    panelMode = mode;
     const live = mode === "listening";
     const waiting = mode === "thinking";
     const typing = mode === "typing";
@@ -2126,20 +2129,56 @@ export function initPhone() {
         else sayQueue.push(value);
       });
     }
-    if (live) ensureMeter();
-    else stopMeter();
+    if (live) pulseMeter();
   };
 
   const updateVoiceState = () => {
     const stateEl = choices.querySelector(".voice__state");
-    if (stateEl) stateEl.textContent = awaiting ? "слушаю вас" : "говорит мошенник";
+    /* в текстовом режиме панель не должна «звучать»: микрофона там нет */
+    if (stateEl) {
+      stateEl.textContent =
+        panelMode === "typing" ? "напишите ответ" : awaiting ? "слушаю вас" : "говорит мошенник";
+    }
     const dot = choices.querySelector(".voice__dot");
     if (dot) dot.classList.toggle("is-live", awaiting);
   };
 
   const showInterim = (text) => {
     const line = document.getElementById("phone-heard");
-    if (line) line.textContent = `«${text}…»`;
+    if (line) line.textContent = `слышу: «${text}…»`;
+    /* человек говорит — панель должна это показывать, а не «говорит мошенник» */
+    const stateEl = choices.querySelector(".voice__state");
+    if (stateEl) stateEl.textContent = "слышу вас";
+    choices.querySelector(".voice__dot")?.classList.add("is-live");
+    /* человек говорит — ожидание продлевается: таймер считает тишину, а не время */
+    if (awaiting) {
+      clearListenTimer();
+      const my = generation;
+      listenTimer = setTimeout(() => {
+        if (my !== generation || !awaiting) return;
+        onSilence(STEPS[stepId] ?? {});
+      }, WAIT_MS());
+    }
+    pulseMeter(Math.min(1, text.length / 24));
+    showLiveLine(text);
+  };
+
+  /* Строка «Вы: …» в журнале, которая обновляется по мере распознавания. */
+  let liveLine = null;
+  const showLiveLine = (text) => {
+    if (!liveLine) {
+      liveLine = document.createElement("p");
+      liveLine.className = "line line--victim line--live";
+      liveLine.setAttribute("aria-live", "polite");
+      log.append(liveLine);
+    }
+    liveLine.innerHTML = `<span class="line__who">Вы</span><span>${escapeHtml(text)}</span>`;
+    liveLine.setAttribute("aria-label", `Вы (распознаётся): ${text}`);
+    log.scrollTop = log.scrollHeight;
+  };
+  const clearLiveLine = () => {
+    liveLine?.remove();
+    liveLine = null;
   };
 
   const showHeard = (text) => {
@@ -2152,9 +2191,11 @@ export function initPhone() {
     speechError = code;
     typeFallback = true;
     const reason =
-      code === "not-allowed" || code === "service-not-allowed"
-        ? "Нет доступа к микрофону — ответьте текстом в поле ниже."
-        : code === "network"
+      code === "audio-capture"
+        ? "Микрофон не найден — подключите его или напишите ответ текстом."
+        : code === "not-allowed" || code === "service-not-allowed"
+          ? "Нет доступа к микрофону — ответьте текстом в поле ниже."
+          : code === "network"
           ? "Распознавание речи недоступно без сети — напишите ответ текстом."
           : "Не расслышал. Напишите ответ текстом — или попробуйте сказать ещё раз.";
     /* панель перерисовывается целиком: иначе остаётся «слушаю вас» с мёртвым
@@ -2182,11 +2223,10 @@ export function initPhone() {
     renderVoicePanel(step, typeFallback ? "typing" : "listening");
     clearListenTimer();
     const my = generation;
-    /* в текстовом режиме человек печатает дольше — не торопим его */
     listenTimer = setTimeout(() => {
       if (my !== generation || !awaiting) return;
       onSilence(step);
-    }, typeFallback ? 60000 : 14000);
+    }, WAIT_MS());
     if (!typeFallback) speech.start();
     /* отладочная очередь фраз: позволяет прогнать диалог без микрофона */
     if (sayQueue.length) {
@@ -2203,7 +2243,19 @@ export function initPhone() {
     silenceCount += 1;
     const action = step.silence ?? { say: "silence", reask: true };
     const my = generation;
-    if (silenceCount >= 3) {
+    /* два раза тишина и ни одного распознанного слова — вероятно, сервис
+       распознавания не отвечает: предлагаем текст, а не гоняем «Алло?» */
+    if (silenceCount >= 2 && !heardAny) {
+      typeFallback = true;
+      speechError = speechError || "no-results";
+      renderVoicePanel(step, "typing");
+      const note = document.getElementById("phone-voice-note");
+      if (note) note.textContent = "Распознавание не ответило — напишите ответ текстом, разговор продолжится.";
+      setHint("напишите ответ в поле справа");
+      awaiting = true;
+      return;
+    }
+    if (silenceCount >= 2) {
       /* третий раз молчит — мошенник не отступает и идёт по скрипту */
       const next = step.routes?.yes?.next ?? "pressure";
       enterStep(next);
@@ -2225,6 +2277,8 @@ export function initPhone() {
     const step = STEPS[stepId];
     if (!step) return;
     const intent = classifyUtterance(text, step);
+    heardAny = true;
+    clearLiveLine();
     appendLine({ who: "you", text });
     showHeard(text);
     if (intent === "code") {
@@ -2233,6 +2287,20 @@ export function initPhone() {
         state.code = code;
         gaveCode = true;
       }
+    }
+    if (intent === "offtopic") offtopicCount += 1;
+    else offtopicCount = 0;
+    /* второй раз «не по теме» — не переспрашиваем вечно: мошенник сам
+       подводит разговор к следующему шагу скрипта */
+    if (offtopicCount >= 2) {
+      const next = step.routes?.yes?.next ?? "pressure";
+      lastIntent = "offtopic→next";
+      lastRoute = JSON.stringify({ next });
+      const gen = generation;
+      sayLine("bridge", () => {
+        if (generation === gen) enterStep(next);
+      });
+      return;
     }
     const action = step.routes?.[intent] ?? step.routes?.offtopic ?? {};
     lastIntent = intent;
@@ -2258,7 +2326,6 @@ export function initPhone() {
     awaiting = false;
     clearListenTimer();
     speech.abort();
-    stopMeter();
     stopTicker();
     quietAudio();
     if (volumeBox) volumeBox.hidden = true;
@@ -2278,7 +2345,11 @@ export function initPhone() {
 
   const enterStep = (id) => {
     /* фраза, сказанная на прошлом шаге, не должна «переехать» в новый */
-    if (id !== stepId) sayQueue.length = 0;
+    if (id !== stepId) {
+      sayQueue.length = 0;
+      offtopicCount = 0;
+      silenceCount = 0;
+    }
     const step = STEPS[id];
     if (!step) return;
     generation += 1;
@@ -2288,7 +2359,6 @@ export function initPhone() {
     awaiting = false;
     clearListenTimer();
     speech.abort();
-    stopMeter();
     choices.innerHTML = "";
     lastHeard = "";
 
@@ -2376,7 +2446,6 @@ export function initPhone() {
     awaiting = false;
     clearListenTimer();
     speech.abort();
-    stopMeter();
     renderIncomingKeys();
     if (status) status.textContent = "входящий · 00:00";
   };
@@ -2388,7 +2457,7 @@ export function initPhone() {
     }
     if (action === "answer" && state.mode === "incoming" && introDone) {
       /* жест пользователя: самое время попросить микрофон */
-      if (!typeFallback) ensureMeter();
+      if (!typeFallback) pulseMeter();
       enterStep(CALL_START);
       return;
     }
@@ -2417,7 +2486,6 @@ export function initPhone() {
     sayQueue.length = 0;
     clearListenTimer();
     speech.abort();
-    stopMeter();
     stopTicker();
     quietAudio(0);
     // сигналы вызова с прошлого прохода не должны висеть на новом
@@ -3149,6 +3217,7 @@ export function initPhone() {
       answer: () => runAction("answer"),
       simulateSpeechError: (code = "network") => onSpeechError(code),
       classify: (text) => classifyUtterance(text, STEPS[stepId] ?? {}),
+      interim: (text) => showInterim(text),
       forceUnlock: () => { state.view = "call"; showIncoming(); paint(); },
       state,
       /* Отладка сцены: поворот, состояние фона и кадр. Только под ?dbg. */

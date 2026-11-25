@@ -1104,3 +1104,20 @@ body.gated {
   font-size: 1.05rem;
   color: var(--text);
 }
+
+/* Распознаваемая на лету фраза: ещё не ответ, но уже видно, что вас слышат. */
+.line--live {
+  opacity: 0.72;
+}
+.line--live .line__who::after {
+  content: " ·";
+  animation: liveDot 1s steps(4, end) infinite;
+}
+@keyframes liveDot {
+  0% { opacity: 0.25; }
+  50% { opacity: 1; }
+  100% { opacity: 0.25; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .line--live .line__who::after { animation: none; }
+}
