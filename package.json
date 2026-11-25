@@ -17,5 +17,8 @@
     "esbuild": "^0.28.2",
     "surge": "^0.57.1",
     "three": "^0.187.0"
+  },
+  "dependencies": {
+    "vosk-browser": "^0.0.8"
   }
 }

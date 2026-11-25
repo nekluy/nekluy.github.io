@@ -15,7 +15,7 @@ const options = {
   outdir: "dist",
   entryNames: "app",
   assetNames: "assets/[name]-[hash]",
-  loader: { ".woff2": "file", ".woff": "file", ".png": "file", ".svg": "file", ".jpg": "file", ".mp3": "file" },
+  loader: { ".woff2": "file", ".woff": "file", ".png": "file", ".svg": "file", ".jpg": "file", ".mp3": "file", ".gz": "file" },
   target: ["es2022"],
   format: "esm",
   minify: !serve,

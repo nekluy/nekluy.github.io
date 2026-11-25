@@ -61,6 +61,8 @@ import simpleAudioF from "./audio/simple-f.mp3";
 import envStudio from "./assets/env-studio-hi.jpg";
 import { CALL_START, LINES, STEPS, classifyUtterance, pickCode } from "./data/call-script.js";
 import { createSpeech, speechSupported } from "./speech.js";
+import { createVoskSpeech } from "./asr-vosk.js";
+import voskModelUrl from "./assets/vosk-ru.tar.gz";
 
 /* ── дизайн-сетка экрана ─────────────────────────────────────────── */
 
@@ -2027,6 +2029,10 @@ export function initPhone() {
     onEnd: () => updateVoiceState(),
   });
 
+  /* Opera и Firefox не умеют Web Speech — там работает локальная модель */
+  let localSpeech = null;
+  const engine = () => (speechSupported ? speech : localSpeech);
+
   let listenTimer = 0;
   let silenceCount = 0;
   let offtopicCount = 0;
@@ -2034,7 +2040,7 @@ export function initPhone() {
   let panelMode = "speaking";
   let stepId = CALL_START;
   let awaiting = false;
-  let typeFallback = !speechSupported;
+  let typeFallback = false;
   let lastHeard = "";
   let speechError = "";
   let lastIntent = "";
@@ -2219,6 +2225,24 @@ export function initPhone() {
     }
   };
 
+  /* Локальный движок создаётся после разбора ошибок: колбэки ссылаются на
+     функции, объявленные ниже, и вызываются уже во время разговора. */
+  localSpeech = createVoskSpeech({
+    modelUrl: voskModelUrl,
+    onFinal: (text) => onHeard(text),
+    onPartial: (text) => showInterim(text),
+    onError: (code) => onSpeechError(code),
+    onState: (mode, progress) => {
+      if (mode !== "loading") return;
+      const stateEl = choices.querySelector(".voice__state");
+      if (stateEl) {
+        stateEl.textContent = progress > 0
+          ? `готовлю распознавание · ${Math.round(progress * 100)}%`
+          : "готовлю распознавание…";
+      }
+    },
+  });
+
   /** Слушаем ответ человека. */
   const listen = (step) => {
     awaiting = true;
@@ -2230,7 +2254,7 @@ export function initPhone() {
       if (my !== generation || !awaiting) return;
       onSilence(step);
     }, WAIT_MS());
-    if (!typeFallback) speech.start();
+    if (!typeFallback) engine()?.start();
     /* отладочная очередь фраз: позволяет прогнать диалог без микрофона */
     if (sayQueue.length) {
       const next = sayQueue.shift();
@@ -2242,7 +2266,7 @@ export function initPhone() {
 
   const onSilence = (step) => {
     awaiting = false;
-    speech.stop();
+    engine()?.stop();
     silenceCount += 1;
     const action = step.silence ?? { say: "silence", reask: true };
     const my = generation;
@@ -2276,7 +2300,7 @@ export function initPhone() {
     awaiting = false;
     silenceCount = 0;
     clearListenTimer();
-    speech.stop();
+    engine()?.stop();
     const step = STEPS[stepId];
     if (!step) return;
     const intent = classifyUtterance(text, step);
@@ -2328,7 +2352,7 @@ export function initPhone() {
     state.mode = "ended";
     awaiting = false;
     clearListenTimer();
-    speech.abort();
+    engine()?.abort();
     stopTicker();
     quietAudio();
     if (volumeBox) volumeBox.hidden = true;
@@ -2361,7 +2385,7 @@ export function initPhone() {
     state.node = id;
     awaiting = false;
     clearListenTimer();
-    speech.abort();
+    engine()?.abort();
     choices.innerHTML = "";
     lastHeard = "";
 
@@ -2437,7 +2461,7 @@ export function initPhone() {
     state.mode = "incoming";
     awaiting = false;
     clearListenTimer();
-    speech.abort();
+    engine()?.abort();
     renderIncomingKeys();
     revealed = true;
     paint();
@@ -2482,7 +2506,7 @@ export function initPhone() {
     }
     sayQueue.length = 0;
     clearListenTimer();
-    speech.abort();
+    engine()?.abort();
     stopTicker();
     quietAudio(0);
     // сигналы вызова с прошлого прохода не должны висеть на новом
@@ -3303,7 +3327,7 @@ export function initPhone() {
         introDone,
         swipeActive: swipe.active,
         awaiting,
-        speechListening: speech.listening,
+        speechListening: engine()?.listening ?? false,
         speechError,
         lastIntent,
         lastRoute,
