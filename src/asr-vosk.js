@@ -9,7 +9,7 @@
  * Наружу отдаёт тот же интерфейс, что и `createSpeech()`: start/stop/abort и
  * `listening`, чтобы движки можно было менять не трогая диалог.
  */
-export const VOSK_MODEL_SIZE = 46 * 1024 * 1024;
+export const VOSK_MODEL_SIZE = 46236673;
 
 export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onState } = {}) {
   let model = null;
@@ -49,37 +49,166 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
     recognizer = null;
   };
 
+  const MODEL_CACHE = "ne-kluy-vosk-v1";
+  const RANGE_PARTS = 4;
+  const RANGE_TIMEOUT = 90000;
+
+  const abortAfter = (ms) => {
+    if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+      return AbortSignal.timeout(ms);
+    }
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), ms);
+    return ctrl.signal;
+  };
+
+  const readCachedModel = async () => {
+    if (!("caches" in window)) return null;
+    try {
+      const cache = await caches.open(MODEL_CACHE);
+      const hit = await cache.match(modelUrl);
+      if (!hit) return null;
+      const blob = await hit.blob();
+      if (blob.size < 1024) {
+        await cache.delete(modelUrl);
+        return null;
+      }
+      const magic = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
+      if (magic[0] !== 0x1f || magic[1] !== 0x8b) {
+        await cache.delete(modelUrl);
+        return null;
+      }
+      return blob;
+    } catch {
+      return null;
+    }
+  };
+
+  const cacheModel = (blob) => {
+    if (!("caches" in window)) return;
+    caches
+      .open(MODEL_CACHE)
+      .then((cache) => cache.put(modelUrl, new Response(blob)))
+      .catch(() => {});
+  };
+
+  const readFull = async (res) => {
+    const total = Number(res.headers.get("content-length")) || VOSK_MODEL_SIZE;
+    const chunks = [];
+    let received = 0;
+    const reader = res.body?.getReader();
+    if (!reader) {
+      chunks.push(new Uint8Array(await res.arrayBuffer()));
+      onState?.("loading", 1);
+      return new Blob(chunks, { type: "application/gzip" });
+    }
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.length;
+      onState?.("loading", Math.min(0.99, received / total));
+    }
+    return new Blob(chunks, { type: "application/gzip" });
+  };
+
+  const readRange = async (start, end, index, progress, add) => {
+    const expected = end - start + 1;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        const res = await fetch(modelUrl, {
+          headers: { Range: "bytes=" + start + "-" + end },
+          signal: abortAfter(RANGE_TIMEOUT),
+          cache: "no-store",
+        });
+        if (res.status !== 206) throw new Error("range " + res.status);
+        const buffer = new Uint8Array(expected);
+        let offset = 0;
+        const reader = res.body?.getReader();
+        if (reader) {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (offset + value.length > expected) throw new Error("range overflow");
+            buffer.set(value, offset);
+            offset += value.length;
+            add(index, value.length);
+          }
+        } else {
+          const body = new Uint8Array(await res.arrayBuffer());
+          offset = Math.min(expected, body.length);
+          buffer.set(body.subarray(0, offset), 0);
+          add(index, offset);
+        }
+        if (offset !== expected) throw new Error("range short");
+        return buffer;
+      } catch (err) {
+        progress.received -= progress.parts[index];
+        progress.parts[index] = 0;
+        if (attempt === 3) throw err;
+        await new Promise((resolve) => setTimeout(resolve, 300 * 2 ** attempt));
+      }
+    }
+    throw new Error("range failed");
+  };
+
+  /* GitHub Pages отдаёт 46 МБ одной качалкой с обрывом на 89%;
+     четыре диапазона качаются параллельно и не залипают. */
+  const downloadModel = async () => {
+    const cached = await readCachedModel();
+    if (cached) {
+      onState?.("loading", 1);
+      return cached;
+    }
+    const probe = await fetch(modelUrl, {
+      headers: { Range: "bytes=0-0" },
+      signal: abortAfter(RANGE_TIMEOUT),
+      cache: "no-store",
+    });
+    if (!probe.ok) throw new Error("модель не скачалась: HTTP " + probe.status);
+    if (probe.status !== 206) {
+      /* локальный http.server не умеет Range — забираем ответ целиком */
+      return readFull(probe);
+    }
+    const total = Number((probe.headers.get("content-range") || "").split("/")[1]) || VOSK_MODEL_SIZE;
+    await probe.arrayBuffer();
+    if (!total || total < 1024) throw new Error("модель пустая");
+    const parts = Math.min(RANGE_PARTS, Math.max(1, Math.ceil(total / (4 * 1024 * 1024))));
+    const chunk = Math.ceil(total / parts);
+    const buffers = new Array(parts);
+    const progress = { received: 0, parts: new Array(parts).fill(0) };
+    const add = (index, bytes) => {
+      progress.parts[index] += bytes;
+      progress.received += bytes;
+      onState?.("loading", Math.min(0.99, progress.received / total));
+    };
+    await Promise.all(
+      Array.from({ length: parts }, (_, index) => {
+        const start = index * chunk;
+        const end = Math.min(total - 1, start + chunk - 1);
+        return readRange(start, end, index, progress, add).then((buffer) => {
+          buffers[index] = buffer;
+        });
+      }),
+    );
+    onState?.("loading", 1);
+    return new Blob(buffers, { type: "application/gzip" });
+  };
+
   /** Загрузка модели с прогрессом: 46 МБ по мобильной сети — не мгновенно. */
   const loadModel = async () => {
     if (model) return model;
     if (loading) return loading;
     loading = (async () => {
       const { createModel } = await import("vosk-browser");
-      const res = await fetch(modelUrl);
-      if (!res.ok) throw new Error(`модель не скачалась: HTTP ${res.status}`);
-      const total = Number(res.headers.get("content-length")) || VOSK_MODEL_SIZE;
-      const chunks = [];
-      let received = 0;
-      const reader = res.body?.getReader();
-      if (reader) {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-          received += value.length;
-          onState?.("loading", Math.min(1, received / total));
-        }
-      } else {
-        chunks.push(new Uint8Array(await res.arrayBuffer()));
-        onState?.("loading", 1);
-      }
-      const blob = new Blob(chunks, { type: "application/gzip" });
+      const blob = await downloadModel();
       const url = URL.createObjectURL(blob);
       try {
         model = await createModel(url, -1);
       } finally {
         URL.revokeObjectURL(url);
       }
+      cacheModel(blob);
       return model;
     })();
     try {
@@ -88,7 +217,6 @@ export function createVoskSpeech({ modelUrl, onFinal, onPartial, onError, onStat
       loading = null;
     }
   };
-
   const startCapture = async (id) => {
     const instance = await loadModel();
     if (id !== captureId || !wantListen) return;
