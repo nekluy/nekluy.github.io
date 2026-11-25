@@ -2016,6 +2016,7 @@ export function initPhone() {
   let awaiting = false;
   let typeFallback = !speechSupported;
   let lastHeard = "";
+  let speechError = "";
   const sayQueue = [];
 
   const trackFor = (id) => (state.gender === "f" ? AUDIO_F[id] : AUDIO_M[id]) || AUDIO_M[id];
@@ -2068,7 +2069,14 @@ export function initPhone() {
   const renderVoicePanel = (step, mode = "speaking") => {
     const live = mode === "listening";
     const waiting = mode === "thinking";
-    const statusText = live ? "слушаю вас" : waiting ? "разбираю ваш ответ" : "говорит мошенник";
+    const typing = mode === "typing";
+    const statusText = live
+      ? "слушаю вас"
+      : waiting
+        ? "разбираю ваш ответ"
+        : typing
+          ? "напишите ответ"
+          : "говорит мошенник";
     choices.innerHTML = `
       <div class="voice">
         <div class="voice__head">
@@ -2126,24 +2134,28 @@ export function initPhone() {
   };
 
   const onSpeechError = (code) => {
+    speechError = code;
+    typeFallback = true;
+    const reason =
+      code === "not-allowed" || code === "service-not-allowed"
+        ? "Нет доступа к микрофону — ответьте текстом в поле ниже."
+        : code === "network"
+          ? "Распознавание речи недоступно без сети — напишите ответ текстом."
+          : "Не расслышал. Напишите ответ текстом — или попробуйте сказать ещё раз.";
+    /* панель перерисовывается целиком: иначе остаётся «слушаю вас» с мёртвым
+       микрофоном — человек думает, что его слышат */
+    renderVoicePanel(STEPS[stepId] ?? {}, "typing");
     const note = document.getElementById("phone-voice-note");
-    const form = document.getElementById("phone-type");
-    if (code === "not-allowed" || code === "service-not-allowed") {
-      typeFallback = true;
-      if (form) form.hidden = false;
-      if (note) note.textContent = "Нет доступа к микрофону — ответьте текстом в поле ниже.";
-      return;
-    }
-    if (code === "network") {
-      typeFallback = true;
-      if (form) form.hidden = false;
-      if (note) note.textContent = "Распознавание речи недоступно без сети — напишите ответ текстом.";
-      return;
-    }
-    if (code === "restart-limit") {
-      typeFallback = true;
-      if (form) form.hidden = false;
-      if (note) note.textContent = "Не расслышал. Напишите ответ текстом — или попробуйте сказать ещё раз.";
+    if (note) note.textContent = reason;
+    document.getElementById("phone-type-input")?.focus({ preventScroll: true });
+    /* перезапускаем ожидание с «печатным» лимитом */
+    if (awaiting) {
+      clearListenTimer();
+      const my = generation;
+      listenTimer = setTimeout(() => {
+        if (my !== generation || !awaiting) return;
+        onSilence(STEPS[stepId] ?? {});
+      }, 60000);
     }
   };
 
@@ -2153,10 +2165,11 @@ export function initPhone() {
     renderVoicePanel(step, "listening");
     clearListenTimer();
     const my = generation;
+    /* в текстовом режиме человек печатает дольше — не торопим его */
     listenTimer = setTimeout(() => {
       if (my !== generation || !awaiting) return;
       onSilence(step);
-    }, 14000);
+    }, typeFallback ? 60000 : 14000);
     if (!typeFallback) speech.start();
     /* отладочная очередь фраз: позволяет прогнать диалог без микрофона */
     if (sayQueue.length) {
@@ -2375,6 +2388,11 @@ export function initPhone() {
     awaiting = false;
     silenceCount = 0;
     lastHeard = "";
+    /* нет доступа к микрофону — оставляем текстовый режим; сетевые сбои пробуем снова */
+    if (speechError !== "not-allowed" && speechError !== "service-not-allowed") {
+      typeFallback = false;
+      speechError = "";
+    }
     sayQueue.length = 0;
     clearListenTimer();
     speech.abort();
@@ -3093,7 +3111,15 @@ export function initPhone() {
     window.__phone = {
       seek: (s) => { introStart = performance.now() - s * 1000; ringsAt = introStart; introDone = false; RING_TIMES.forEach((t, i) => { rings[i].start = t; }); tick(); group.updateMatrixWorld(true); updateClip(); renderer.render(scene, camera); },
       tick,
-      go: (id) => (id === "incoming" ? showIncoming() : enterStep(id)),
+      go: (id) => {
+        /* в отладке телефон уже «разблокирован», иначе экран остаётся на блокировке */
+        if (id !== "incoming") {
+          state.view = "call";
+          revealed = true;
+        }
+        id === "incoming" ? showIncoming() : enterStep(id);
+        paint();
+      },
       /* Проверка диалога без микрофона: прогнать фразу как распознанную. */
       say: (text) => {
         if (awaiting) onHeard(text);
@@ -3153,6 +3179,7 @@ export function initPhone() {
         swipeActive: swipe.active,
         awaiting,
         speechListening: speech.listening,
+        speechError,
         step: stepId,
         heard: lastHeard,
         unlocking,
